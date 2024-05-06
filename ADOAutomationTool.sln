@@ -1,0 +1,45 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.9.34728.123
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Lamdat.ADOAutomationTool", "Src\Lamdat.ADOAutomationTool\Lamdat.ADOAutomationTool.csproj", "{301AC8C3-1E2A-4FAC-8A51-AD346D675FA0}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{DAAD4E2B-BDB3-456A-8063-68891EAD9C3D}"
+	ProjectSection(SolutionItems) = preProject
+		.gitignore = .gitignore
+		readme.md = readme.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{43A4404E-440E-4187-9EAF-4420B59EECF0}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{67FCD311-2731-43A5-A43D-D4091836448F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lamdat.ADOAutomationTool.Tests", "Lamdat.ADOAutomationTool.Tests\Lamdat.ADOAutomationTool.Tests.csproj", "{100C0E5B-D21B-4D3B-9B7C-42C35E97BE63}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{301AC8C3-1E2A-4FAC-8A51-AD346D675FA0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{301AC8C3-1E2A-4FAC-8A51-AD346D675FA0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{301AC8C3-1E2A-4FAC-8A51-AD346D675FA0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{301AC8C3-1E2A-4FAC-8A51-AD346D675FA0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{100C0E5B-D21B-4D3B-9B7C-42C35E97BE63}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{100C0E5B-D21B-4D3B-9B7C-42C35E97BE63}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{100C0E5B-D21B-4D3B-9B7C-42C35E97BE63}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{100C0E5B-D21B-4D3B-9B7C-42C35E97BE63}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{301AC8C3-1E2A-4FAC-8A51-AD346D675FA0} = {43A4404E-440E-4187-9EAF-4420B59EECF0}
+		{100C0E5B-D21B-4D3B-9B7C-42C35E97BE63} = {67FCD311-2731-43A5-A43D-D4091836448F}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {2A34B234-3FA7-4787-A16E-DAA26CC898D1}
+	EndGlobalSection
+EndGlobal

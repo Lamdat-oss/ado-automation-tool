@@ -1,0 +1,16 @@
+﻿
+Logger.Log(LogLevel.Information, $"Received event type: {EventType},Work Item Id: {Self.Id}, Title: '{Self.Title}, State: {Self.State}, WorkItemType:  {Self.WorkItemType}");
+
+
+Self.Fields["System.Description"] = $"Current Date: {DateTime.Today}";
+if(Self.Parent != null){
+    var parentWit = await Client.GetWorkItem(Self.Parent.RelatedWorkItemId);
+    Logger.Log(LogLevel.Information, $"Work Item Parent Title: {parentWit.Title}");
+    if(parentWit != null)
+    {
+        Logger.Log(LogLevel.Information, $"Work Item Parent Children Count: {parentWit.Children.Count}");
+    
+    }
+}
+
+
