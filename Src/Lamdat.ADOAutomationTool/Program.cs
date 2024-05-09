@@ -14,6 +14,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true).AddEnvironmentVariables().AddCommandLine(args);
 builder.Services.Configure<Settings>(builder.Configuration.GetSection("Settings"));
+builder.WebHost.UseKestrel().UseUrls("http://*:5000");
 builder.Services.Configure<BasicAuthenticationOptions>(options =>
 {
     var settings = builder.Configuration.GetSection("Settings").Get<Settings>();
@@ -32,6 +33,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
