@@ -8,6 +8,7 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{DAAD4E2B-BDB3-456A-8063-68891EAD9C3D}"
 	ProjectSection(SolutionItems) = preProject
 		.gitignore = .gitignore
+		Dockerfile = Dockerfile
 		readme.md = readme.md
 	EndProjectSection
 EndProject
@@ -15,7 +16,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{43A4404E-440
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{67FCD311-2731-43A5-A43D-D4091836448F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lamdat.ADOAutomationTool.Tests", "Lamdat.ADOAutomationTool.Tests\Lamdat.ADOAutomationTool.Tests.csproj", "{100C0E5B-D21B-4D3B-9B7C-42C35E97BE63}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Lamdat.ADOAutomationTool.Tests", "Lamdat.ADOAutomationTool.Tests\Lamdat.ADOAutomationTool.Tests.csproj", "{100C0E5B-D21B-4D3B-9B7C-42C35E97BE63}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
