@@ -50,6 +50,11 @@ Alternatively, you can use environment variables to configure the tool. Set the 
 4. Start the application.
 5. Your ADO Automation Tool is now ready to receive webhooks and execute scripts.
 
+## create pfx for tls using PowerShell
+```$cert = New-SelfSignedCertificate -KeyLength 2048 -KeyAlgorithm RSA -Type SSLServerAuthentication -FriendlyName "adoAutomationTool" -NotAfter 2030-01-01 -Subject "adoautomationtool.example.com")
+$certPass = Read-Host -Prompt "Password" -AsSecureString
+Export-PfxCertificate -FilePath "adoautomation.pfx" -Cert $cert -Password $certPass
+```
 
 
 # Rules language

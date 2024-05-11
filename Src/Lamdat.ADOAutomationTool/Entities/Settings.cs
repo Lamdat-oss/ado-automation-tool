@@ -9,5 +9,7 @@
         public bool BypassRules { get; set; }
 
         public string SharedKey { get; set; }
+
+        public string AllowedCorsOrigin { get; set; }
     }
 }

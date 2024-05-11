@@ -12,6 +12,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
 builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true).AddEnvironmentVariables().AddCommandLine(args);
 builder.Services.Configure<Settings>(builder.Configuration.GetSection("Settings"));
 builder.WebHost.UseKestrel().UseUrls("http://*:5000");
@@ -23,6 +24,15 @@ builder.Services.Configure<BasicAuthenticationOptions>(options =>
 builder.Services.AddAuthentication("BasicAuthentication")
     .AddScheme<BasicAuthenticationOptions, BasicAuthenticationHandler>("BasicAuthentication", options => { });
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowSpecificOrigins",
+        cors =>
+        {
+            var settings = builder.Configuration.GetSection("Settings").Get<Settings>();
+            cors.WithOrigins(settings.AllowedCorsOrigin);
+        });
+});
 
 var app = builder.Build();
 
@@ -37,6 +47,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
+
 
 app.MapControllers();
 
