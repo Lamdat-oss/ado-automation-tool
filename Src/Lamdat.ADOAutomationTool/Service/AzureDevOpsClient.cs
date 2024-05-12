@@ -47,8 +47,9 @@ namespace Lamdat.ADOAutomationTool.Service
         /// <returns></returns>
         public async Task<WorkItem> GetWorkItem(int workItemId)
         {
-            if (workItemId == 0) //Azure Test 
+            if (_project == "be9b3917-87e6-42a4-a549-2bc06a7a878f") // ADO Test 
                 return new WorkItem() { Fields = new Dictionary<string, object>(), Id = 0 };
+
             try
             {
                 var url = $"{_collectionURL}/{_project}/_apis/";
@@ -107,7 +108,7 @@ namespace Lamdat.ADOAutomationTool.Service
             catch (Exception ex)
             {
                 _logger.LogError(ex.Message);
-                throw new ADOAutomationException($"Failed to retreive work item relations, the error was : {ex.Message}");
+                throw new ADOAutomationException($"Failed to retreive work item, the error was : {ex.Message}");
             }
         }
 
@@ -151,8 +152,12 @@ namespace Lamdat.ADOAutomationTool.Service
         /// <returns></returns>
         public async Task<bool> SaveWorkItem(WorkItem newWorkItem)
         {
+            if (_project == "be9b3917-87e6-42a4-a549-2bc06a7a878f") // ADO Test 
+                return true;
+
             try
             {
+
                 var existingWorkItem = await GetWorkItem(newWorkItem.Id);
 
                 if (existingWorkItem == null)

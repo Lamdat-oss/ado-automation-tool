@@ -31,6 +31,11 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
             try
             {
                 string scriptsDirectory = "scripts";
+                if (!Directory.Exists(scriptsDirectory))
+                {
+                    _logger.LogWarning("Scripts Directory not found");
+                    return null;
+                }
                 string[] scriptFiles = Directory.GetFiles(scriptsDirectory, "*.rule");
 
                 var tasks = scriptFiles.Select(async scriptFile =>
@@ -42,7 +47,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                         string scriptCode = await File.ReadAllTextAsync(scriptFile);
                         ScriptOptions options = ScriptOptions.Default
                     .AddReferences(typeof(WebHookInfo).Assembly)
-                    .AddImports("ADOAutomationTool.Entities")
+                    .AddImports("Lamdat.ADOAutomationTool.Entities")
                     .AddImports("Microsoft.Extensions.Logging")
                     .AddImports("System");
                         await CSharpScript.EvaluateAsync(scriptCode, options, globals: context);
