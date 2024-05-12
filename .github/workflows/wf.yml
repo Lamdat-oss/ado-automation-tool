@@ -27,16 +27,9 @@ jobs:
       run: echo "::set-output name=last_build_number::$(git describe --tags --abbrev=0 | cut -d '.' -f 3)"
 
     - name: Calculate New Build Number
-      id: calculate_build_number
-      run: |
-        if [ -z "${{ steps.last_build.outputs.last_build_number }}" ]; then
-          echo "::set-output name=build_number::${{ matrix.build-number }}.0"
-        else
-          last_build_number="${{ steps.last_build.outputs.last_build_number }}"
-          last_build_number="${last_build_number##*.}" 
-          next_build_number=$((last_build_number + 1))
-          echo "::set-output name=build_number::${{ matrix.build-number }}.${next_build_number}"
-        fi
+      id: calculate_build_number       
+          echo "::set-output name=build_number::${{ matrix.build-number }}.${{ github.run_number }}"
+     
 
 
     - name: Setup .NET Core SDK
