@@ -110,5 +110,5 @@ jobs:
         context: .
         file: Dockerfile
         push: true
-        tags: adoautomationtool:latest, adoautomationtool:${{ env.BUILD_NUMBER }}
+        tags: adoautomationtool:latest
 
