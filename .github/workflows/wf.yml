@@ -46,10 +46,13 @@ jobs:
       run: dotnet publish -c Release -r win-x64 --self-contained true -o '$(Build.ArtifactStagingDirectory)/windows'
 
     - name: Zip Linux Build
-      run: zip -r linux_build.zip $(Build.ArtifactStagingDirectory)/linux
+      run: zip -r linux_build.zip ./linux
+      working-directory: ${{ github.workspace }}/${{ matrix.build-number }}/linux
 
     - name: Zip Windows Build
-      run: zip -r windows_build.zip $(Build.ArtifactStagingDirectory)/windows
+      run: zip -r windows_build.zip ./windows
+      working-directory: ${{ github.workspace }}/${{ matrix.build-number }}/windows
+
 
     - name: Create Release
       id: create_release
