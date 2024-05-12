@@ -52,9 +52,7 @@ $certPass = Read-Host -Prompt "Password" -AsSecureString
 Export-PfxCertificate -FilePath "adoautomation.pfx" -Cert $cert -Password $certPass
 ```
 
-
 # Rules language
-
 
 ## Example Rule
 ```csharp
