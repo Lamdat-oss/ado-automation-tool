@@ -108,7 +108,8 @@ jobs:
       uses: docker/build-push-action@v2
       with:
         context: .
+        registry: adoautomationtool
         file: Dockerfile
         push: true
-        tags: adoautomationtool/adoautomationtool:latest, adoautomationtool/adoautomationtool:${{ env.BUILD_NUMBER }}
+        tags: adoautomationtool:latest, adoautomationtool:${{ env.BUILD_NUMBER }}
 
