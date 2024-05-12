@@ -3,7 +3,7 @@ name: ado-automation-ci-cd
 on:
   push:
     branches:
-      - main
+      - feature/build
   pull_request:
     branches:
       - main
