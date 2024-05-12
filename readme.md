@@ -1,7 +1,3 @@
-Certainly! Here's an updated version of the README.md file to include information on how to provide configuration through command line arguments and environment variables in ASP.NET 6:
-
----
-
 # ADO Automation Tool
 
 The **ADO Automation Tool** is a web API designed to listen to webhooks from Azure DevOps. When a webhook is received, it triggers a script defined in the `scripts` folder with the `.rule` file suffix.
@@ -30,7 +26,7 @@ To use JSON configuration, create a `config.json` file with the following struct
 You can also specify configuration settings through command line arguments when running the application. Here's how you can do it:
 
 ```bash
-dotnet run --CollectionURL=https://azuredevops.syncnow.io/LamdatCollection --PAT=your_pat_token --BypassRules=true --SharedKey=your_shared_key
+dotnet run --CollectionURL=https:///<azure-devops-host>/<collection> | dev.azure.com>/<org>--PAT=your_pat_token --BypassRules=true --SharedKey=your_shared_key
 ```
 
 ### Environment Variables
