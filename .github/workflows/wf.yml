@@ -1,0 +1,112 @@
+name: ado-automation-ci-cd
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        build-number: [0.1]  
+
+    steps:
+    - name: Set Build Number
+      run: echo "BUILD_NUMBER=${{ matrix.build-number }}" >> $GITHUB_ENV
+
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Read Last Build Number
+      id: last_build
+      run: echo "::set-output name=last_build_number::$(git describe --tags --abbrev=0 | cut -d '.' -f 3)"
+
+    - name: Calculate New Build Number
+      id: calculate_build_number
+      run: echo "::set-output name=build_number::${{ matrix.build-number }}.$(( ${{ steps.last_build.outputs.last_build_number }} + 1 ))"
+
+
+    - name: Setup .NET Core SDK
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: '6.0' 
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build Linux Self-contained
+      run: dotnet publish -c Release -r linux-x64 --self-contained true -o '$(Build.ArtifactStagingDirectory)/linux'
+
+    - name: Build Windows Self-contained
+      run: dotnet publish -c Release -r win-x64 --self-contained true -o '$(Build.ArtifactStagingDirectory)/windows'
+
+    - name: Zip Linux Build
+      run: zip -r linux_build.zip $(Build.ArtifactStagingDirectory)/linux
+
+    - name: Zip Windows Build
+      run: zip -r windows_build.zip $(Build.ArtifactStagingDirectory)/windows
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      with:
+        tag_name: v${{ env.BUILD_NUMBER }}
+        release_name: Release ${{ env.BUILD_NUMBER }}
+        draft: false
+        prerelease: false
+
+    - name: Upload Linux Build
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./linux_build.zip
+        asset_name: linux_build.zip
+        asset_content_type: application/zip
+
+    - name: Upload Windows Build
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./windows_build.zip
+        asset_name: windows_build.zip
+        asset_content_type: application/zip
+    
+    - name: Tag Git Repository
+      run: git tag ${{ steps.calculate_build_number.outputs.build_number }}
+
+    - name: Push Git Tag
+      run: git push origin ${{ steps.calculate_build_number.outputs.build_number }}
+
+
+  # deploy:
+  #   needs: build
+  #   runs-on: ubuntu-latest
+
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v2
+
+  #   - name: Deploy to Docker Hub
+  #     uses: docker/login-action@v1
+  #     with:
+  #       username: ${{ secrets.DOCKER_USERNAME }}
+  #       password: ${{ secrets.DOCKER_PASSWORD }}
+
+  #   - name: Push Docker image
+  #     uses: docker/build-push-action@v2
+  #     with:
+  #       context: .
+  #       file: Dockerfile
+  #       push: true
+  #       tags: your-image-tag:latest
