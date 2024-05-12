@@ -24,7 +24,7 @@ jobs:
  
     - name: Calculate New Build Number
       id: calculate_build_number       
-      run: echo "name=BUILD_NUMBER::${{ matrix.build-number }}.${{ github.run_number }}" >> $GITHUB_ENV
+      run: echo "BUILD_NUMBER=${{ matrix.build-number }}.${{ github.run_number }}" >> $GITHUB_ENV
         
      
 
