@@ -45,7 +45,7 @@ namespace Lamdat.ADOAutomationTool.Service
                 if (payload.EventType == "workitem.created")
                     payload.Resource.WorkItemId = payload.Resource.Id;
 
-                var witRcv = await adoClient.GetWorkItem(payload.Resource.WorkItemId);
+                WorkItem? witRcv  = await adoClient.GetWorkItem(payload.Resource.WorkItemId);
                 var context = new Context(webHookResource: payload.Resource, workitem: witRcv, project: payload.Project, eventType: payload.EventType, logger: _logger, client: adoClient);
 
                 if (payload.EventType == "workitem.updated")
@@ -53,8 +53,8 @@ namespace Lamdat.ADOAutomationTool.Service
                     var systemUserID = SystemUser.Identity.TeamFoundationId;
                     dynamic? userChanged = null;
                     var userChangedSuccess = witRcv.Fields.TryGetValue("System.ChangedBy", out userChanged);
-                    if (userChangedSuccess == false)                    
-                        _logger.LogWarning("Workitem changed user not found, will not run sripts");                    
+                    if (userChangedSuccess == false)
+                        _logger.LogWarning("Workitem changed user not found, will not run sripts");
                     else
                     {
                         var changedUsedId = userChanged.id;
@@ -69,11 +69,12 @@ namespace Lamdat.ADOAutomationTool.Service
                         }
                     }
                 }
-                else {
+                else
+                {
                     var engine = new CSharpScriptEngine(_logger);
                     err = await engine.ExecuteScripts(context);
                 }
-              
+
             }
             catch (Exception ex)
             {
