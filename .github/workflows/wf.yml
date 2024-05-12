@@ -93,10 +93,17 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        build-number: [0.1]  
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v2
+
+    - name: Set Build Number
+      run: echo "BUILD_NUMBER=${{ matrix.build-number }}" >> $GITHUB_ENV
+
 
     - name: Deploy to Docker Hub
       uses: docker/login-action@v1      
@@ -110,6 +117,6 @@ jobs:
         context: .
         file: Dockerfile
         push: true
-        tags: adoautomationtool/adoautomationtool:0.1.20
+        tags: adoautomationtool/adoautomationtool:latest, adoautomationtool/adoautomationtool:${{ env.BUILD_NUMBER }}
 
 
