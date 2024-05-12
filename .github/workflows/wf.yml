@@ -28,7 +28,12 @@ jobs:
 
     - name: Calculate New Build Number
       id: calculate_build_number
-      run: echo "::set-output name=build_number::${{ matrix.build-number }}.$(( ${{ steps.last_build.outputs.last_build_number }} + 1 ))"
+      run: |
+        if [ -z "${{ steps.last_build.outputs.last_build_number }}" ]; then
+          echo "::set-output name=build_number::${{ matrix.build-number }}.0"
+        else
+          echo "::set-output name=build_number::${{ matrix.build-number }}.$(( ${{ steps.last_build.outputs.last_build_number }} + 1 ))"
+        fi
 
 
     - name: Setup .NET Core SDK
@@ -47,11 +52,11 @@ jobs:
 
     - name: Zip Linux Build
       run: zip -r linux_build.zip ./linux
-      working-directory: ${{ github.workspace }}/${{ matrix.build-number }}/linux
+      working-directory: ${{ github.workspace }}/linux
 
     - name: Zip Windows Build
       run: zip -r windows_build.zip ./windows
-      working-directory: ${{ github.workspace }}/${{ matrix.build-number }}/windows
+      working-directory: ${{ github.workspace }}/windows
 
 
     - name: Create Release
