@@ -45,17 +45,17 @@ jobs:
       run: dotnet restore
 
     - name: Build Linux Self-contained
-      run: dotnet publish -c Release -r linux-x64 --self-contained true -o '$(Build.ArtifactStagingDirectory)/linux'
+      run: dotnet publish -c Release -r linux-x64 --self-contained true -o ./linux
 
     - name: Build Windows Self-contained
-      run: dotnet publish -c Release -r win-x64 --self-contained true -o '$(Build.ArtifactStagingDirectory)/windows'
+      run: dotnet publish -c Release -r win-x64 --self-contained true -o ./windows
 
     - name: Zip Linux Build
-      run: zip -r linux_build.zip . -i ./linux
+      run: zip -r linux_build.zip ./linux
       working-directory: ${{ github.workspace }}
 
     - name: Zip Windows Build
-      run: zip -r windows_build.zip . -i ./windows
+      run: zip -r windows_build.zip ./windows
       working-directory: ${{ github.workspace }}
 
 
