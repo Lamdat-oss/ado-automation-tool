@@ -48,10 +48,10 @@ jobs:
       run: dotnet restore
 
     - name: Build Linux Self-contained
-      run: dotnet publish -c Release -r linux-x64 --self-contained single -p:PublishSingleFile=true -o ./linux -j
+      run: dotnet publish -c Release -r linux-x64 --self-contained single -p:PublishSingleFile=true -o ./linux 
 
     - name: Build Windows Self-contained
-      run: dotnet publish -c Release -r win-x64 --self-contained single -o ./windows -j
+      run: dotnet publish -c Release -r win-x64 --self-contained single -o ./windows 
 
     - name: Zip Linux Build
       run: zip -j linux_build.zip ./linux/*
