@@ -54,11 +54,11 @@ jobs:
       run: dotnet publish -c Release -r win-x64 --self-contained single -o ./windows -j
 
     - name: Zip Linux Build
-      run: zip -r linux_build.zip ./linux
+      run: zip -j linux_build.zip ./linux/*
       working-directory: ${{ github.workspace }}
 
-    - name: Zip Windows Build
-      run: zip -r windows_build.zip ./windows
+    - name: Zip Windows zip
+      run: zip -j windows_build.zip ./windows/*
       working-directory: ${{ github.workspace }}
 
 
