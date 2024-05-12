@@ -51,11 +51,11 @@ jobs:
       run: dotnet publish -c Release -r win-x64 --self-contained true -o '$(Build.ArtifactStagingDirectory)/windows'
 
     - name: Zip Linux Build
-      run: zip -r linux_build.zip ./linux
+      run: zip -r linux_build.zip . -i ./linux
       working-directory: ${{ github.workspace }}
 
     - name: Zip Windows Build
-      run: zip -r windows_build.zip ./windows
+      run: zip -r windows_build.zip . -i ./windows
       working-directory: ${{ github.workspace }}
 
 
