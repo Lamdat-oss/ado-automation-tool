@@ -3,7 +3,7 @@ name: ado-automation-ci-cd
 on:
   push:
     branches:
-      - main
+      - feature/build
   pull_request:
     branches:
       - main
@@ -21,14 +21,12 @@ jobs:
 
     - name: Checkout code
       uses: actions/checkout@v2
-
-    - name: Read Last Build Number
-      id: last_build
-      run: echo "::set-output name=last_build_number::$(git describe --tags --abbrev=0 | cut -d '.' -f 3)"
-
+ 
     - name: Calculate New Build Number
-      id: calculate_build_number
-      run: echo "::set-output name=build_number::${{ matrix.build-number }}.$(( ${{ steps.last_build.outputs.last_build_number }} + 1 ))"
+      id: calculate_build_number       
+      run: echo "BUILD_NUMBER=${{ matrix.build-number }}.${{ github.run_number }}" >> $GITHUB_ENV
+        
+     
 
 
     - name: Setup .NET Core SDK
@@ -40,16 +38,19 @@ jobs:
       run: dotnet restore
 
     - name: Build Linux Self-contained
-      run: dotnet publish -c Release -r linux-x64 --self-contained true -o '$(Build.ArtifactStagingDirectory)/linux'
+      run: dotnet publish -c Release -r linux-x64 --self-contained true  -p:PublishSingleFile=false -o ./linux 
 
     - name: Build Windows Self-contained
-      run: dotnet publish -c Release -r win-x64 --self-contained true -o '$(Build.ArtifactStagingDirectory)/windows'
+      run: dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false  -o ./windows 
 
     - name: Zip Linux Build
-      run: zip -r linux_build.zip $(Build.ArtifactStagingDirectory)/linux
+      run: zip -j linux_build.zip ./linux/*
+      working-directory: ${{ github.workspace }}
 
-    - name: Zip Windows Build
-      run: zip -r windows_build.zip $(Build.ArtifactStagingDirectory)/windows
+    - name: Zip Windows zip
+      run: zip -j windows_build.zip ./windows/*
+      working-directory: ${{ github.workspace }}
+
 
     - name: Create Release
       id: create_release
@@ -89,24 +90,33 @@ jobs:
       run: git push origin ${{ steps.calculate_build_number.outputs.build_number }}
 
 
-  # deploy:
-  #   needs: build
-  #   runs-on: ubuntu-latest
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        build-number: [0.1]  
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
 
-  #   steps:
-  #   - name: Checkout code
-  #     uses: actions/checkout@v2
+    - name: Set Build Number
+      run: echo "BUILD_NUMBER=${{ matrix.build-number }}" >> $GITHUB_ENV
 
-  #   - name: Deploy to Docker Hub
-  #     uses: docker/login-action@v1
-  #     with:
-  #       username: ${{ secrets.DOCKER_USERNAME }}
-  #       password: ${{ secrets.DOCKER_PASSWORD }}
 
-  #   - name: Push Docker image
-  #     uses: docker/build-push-action@v2
-  #     with:
-  #       context: .
-  #       file: Dockerfile
-  #       push: true
-  #       tags: your-image-tag:latest
+    - name: Deploy to Docker Hub
+      uses: docker/login-action@v1      
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Push Docker image
+      uses: docker/build-push-action@v2
+      with:
+        context: .
+        file: Dockerfile
+        push: true
+        tags: adoautomationtool/adoautomationtool:latest, adoautomationtool/adoautomationtool:${{ env.BUILD_NUMBER }}
+
+

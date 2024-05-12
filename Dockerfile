@@ -10,7 +10,7 @@ COPY Src/Lamdat.ADOAutomationTool/ ./
 
 RUN dotnet publish -c Release -o out
 
-FROM mcr.microsoft.com/dotnet/aspnet:6.0
+FROM mcr.microsoft.com/dotnet/aspnet:6.0.29-jammy
 
 WORKDIR /app
 
