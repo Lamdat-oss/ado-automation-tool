@@ -110,5 +110,6 @@ jobs:
         context: .
         file: Dockerfile
         push: true
-        tags: adoautomationtool:latest
+        tags: adoautomationtool/adoautomationtool:latest
+
 
