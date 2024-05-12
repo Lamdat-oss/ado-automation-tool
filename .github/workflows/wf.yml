@@ -52,11 +52,11 @@ jobs:
 
     - name: Zip Linux Build
       run: zip -r linux_build.zip ./linux
-      working-directory: ${{ github.workspace }}/linux
+      working-directory: ${{ github.workspace }}
 
     - name: Zip Windows Build
       run: zip -r windows_build.zip ./windows
-      working-directory: ${{ github.workspace }}/windows
+      working-directory: ${{ github.workspace }}
 
 
     - name: Create Release
