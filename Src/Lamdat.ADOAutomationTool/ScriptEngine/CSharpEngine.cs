@@ -38,7 +38,12 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                 }
                 string[] scriptFiles = Directory.GetFiles(scriptsDirectory, "*.rule");
 
-                var tasks = scriptFiles.Select(async scriptFile =>
+                var parallelOptions = new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = Environment.ProcessorCount * 2
+                };
+
+                Parallel.ForEach(scriptFiles, parallelOptions, async scriptFile =>
                 {
                     try
                     {
@@ -46,10 +51,10 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
 
                         string scriptCode = await File.ReadAllTextAsync(scriptFile);
                         ScriptOptions options = ScriptOptions.Default
-                    .AddReferences(typeof(WebHookInfo).Assembly)
-                    .AddImports("Lamdat.ADOAutomationTool.Entities")
-                    .AddImports("Microsoft.Extensions.Logging")
-                    .AddImports("System");
+                            .AddReferences(typeof(WebHookInfo).Assembly)
+                            .AddImports("Lamdat.ADOAutomationTool.Entities")
+                            .AddImports("Microsoft.Extensions.Logging")
+                            .AddImports("System");
                         await CSharpScript.EvaluateAsync(scriptCode, options, globals: context);
                         var compiledScript = CSharpScript.Create(scriptCode, options, globalsType: context.GetType());
                         await compiledScript.RunAsync(globals: context);
@@ -61,19 +66,15 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                         var err = $"Script compilation error in file '{scriptFile}': {ex.Message}";
                         _logger.LogError(err);
                         errCol.GetOrAdd(scriptFile, err);
-
                     }
                     catch (Exception ex)
                     {
-                        var err = $"Script compilation error in file '{scriptFile}': {ex.Message}";
+                        var err = $"Error executing script '{scriptFile}': {ex.Message}";
                         _logger.LogError(err);
                         errCol.GetOrAdd(scriptFile, err);
-
                     }
-                }).ToArray();
+                });
 
-
-                await Task.WhenAll(tasks);
                 _logger.Log(LogLevel.Information, $"Done Executing all scripts");
             }
             catch (Exception ex)
@@ -96,5 +97,4 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
         }
 
     }
-
 }

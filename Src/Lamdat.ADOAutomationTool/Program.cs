@@ -12,6 +12,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddLogging(opt =>
+ {
+     opt.AddConsole(c =>
+     {
+         c.TimestampFormat = "[HH:mm:ss] ";
+     });
+ });
 
 builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true).AddEnvironmentVariables().AddCommandLine(args);
 builder.Services.Configure<Settings>(builder.Configuration.GetSection("Settings"));

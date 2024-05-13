@@ -45,8 +45,14 @@ namespace Lamdat.ADOAutomationTool.Service
                 if (payload.EventType == "workitem.created")
                     payload.Resource.WorkItemId = payload.Resource.Id;
 
-                WorkItem? witRcv  = await adoClient.GetWorkItem(payload.Resource.WorkItemId);
-                var context = new Context(webHookResource: payload.Resource, workitem: witRcv, project: payload.Project, eventType: payload.EventType, logger: _logger, client: adoClient);
+                WorkItem? witRcv = await adoClient.GetWorkItem(payload.Resource.WorkItemId);
+                Dictionary<string, object> selfChangedDic;
+                if (payload.EventType == "workitem.updated")
+                    selfChangedDic = payload.Resource.Fields as Dictionary<string, object>;
+                else
+                    selfChangedDic = new Dictionary<string, object>();
+
+                var context = new Context(webHookResource: payload.Resource, selfChanges: selfChangedDic, workitem: witRcv, project: payload.Project, eventType: payload.EventType, logger: _logger, client: adoClient);
 
                 if (payload.EventType == "workitem.updated")
                 {
