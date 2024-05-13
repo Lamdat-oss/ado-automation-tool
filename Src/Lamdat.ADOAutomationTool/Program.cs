@@ -54,7 +54,16 @@ app.MapControllers();
 var settings = app.Services.GetRequiredService<IOptions<Settings>>().Value;
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
+var appSettings = builder.Configuration.GetSection("Settings").Get<Settings>();
+logger.LogInformation($"Azure DevOps Collection URL: {appSettings.CollectionURL}");
+logger.LogInformation($"Azure DevOps allowed CORS origin: {appSettings.AllowedCorsOrigin}");
+
+if (string.IsNullOrWhiteSpace(settings.PAT))
+    logger.LogWarning($"PAT not set in configuration");
+if (string.IsNullOrWhiteSpace(settings.SharedKey))
+    logger.LogWarning($"Shared Key not set in configuration");
 var webHandler = new WebHookHandler(logger, settings);
+
 webHandler.Init();
 
 app.Run();
