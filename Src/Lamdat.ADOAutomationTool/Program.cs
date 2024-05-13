@@ -55,8 +55,16 @@ var settings = app.Services.GetRequiredService<IOptions<Settings>>().Value;
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
 var appSettings = builder.Configuration.GetSection("Settings").Get<Settings>();
-logger.LogInformation($"Azure DevOps Collection URL: {appSettings.CollectionURL}");
-logger.LogInformation($"Azure DevOps allowed CORS origin: {appSettings.AllowedCorsOrigin}");
+if (string.IsNullOrWhiteSpace(settings.CollectionURL))
+    logger.LogWarning($"Azure DevOps Collection URL not set in configuration");
+else
+    logger.LogInformation($"Azure DevOps Collection URL: {appSettings.CollectionURL}");
+
+if (string.IsNullOrWhiteSpace(settings.AllowedCorsOrigin))
+    logger.LogWarning($"Azure DevOps allowed CORS not set in configuration");
+else
+    logger.LogInformation($"Azure DevOps allowed CORS origin: {appSettings.AllowedCorsOrigin}");
+
 
 if (string.IsNullOrWhiteSpace(settings.PAT))
     logger.LogWarning($"PAT not set in configuration");
