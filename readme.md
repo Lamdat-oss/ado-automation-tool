@@ -26,7 +26,7 @@ To use JSON configuration, create a `config.json` file with the following struct
 You can also specify configuration settings through command line arguments when running the application. Here's how you can do it:
 
 ```bash
-docker run --rm -it  -v .\Examples:/app/scripts   -p 5000:5000/tcp   -e "ASPNETCORE_SETTINGS__CollectionURL=https:///<azure-devops-host>/<collection> | dev.azure.com>/<org>" -e  "ASPNETCORE_SETTINGS__PAT=<PAT>" -e "ASPNETCORE_SETTINGS__BypassRules=true" -e "ASPNETCORE_SETTINGS__SharedKey=<Key>" adoautomationtool/adoautomationtool:latest
+docker run --rm -it  -v .\Examples:/app/scripts   -p 5000:5000/tcp   -e "SETTINGS__COLLECTIONURL=https:///<azure-devops-host>/<collection> | dev.azure.com>/<org>" -e  "SETTINGS__PAT=<PAT>" -e "SETTINGS__BYPASSRULES=true" -e "SETTINGS__SHAREDKEY=<key>" adoautomationtool/adoautomationtool:0.1.40
 ```
 
 ### Environment Variables
