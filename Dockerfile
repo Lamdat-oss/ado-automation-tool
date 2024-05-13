@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:6.0 AS build-stage
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build-stage
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ COPY Src/Lamdat.ADOAutomationTool/ ./
 
 RUN dotnet publish -c Release -o out
 
-FROM mcr.microsoft.com/dotnet/aspnet:6.0.29-jammy
+FROM mcr.microsoft.com/dotnet/aspnet:aspnet:8.0.4-jammy
 
 WORKDIR /app
 
