@@ -58,7 +58,7 @@ namespace Lamdat.ADOAutomationTool.Auth
             var principal = new ClaimsPrincipal(identity);
             var ticket = new AuthenticationTicket(principal, Scheme.Name);
 
-            Logger.LogInformation("Authentication successful");
+            Logger.LogDebug("Authentication successful");
             return AuthenticateResult.Success(ticket);
         }
 
