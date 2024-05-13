@@ -9,6 +9,8 @@
 
   <ItemGroup>
     <None Remove="Scripts\ChangeWorkItemTitleOnUpdate.rule" />
+    <None Remove="scripts\SetParentStartEndByChild.rule" />
+    <None Remove="scripts\SetParentStartTargetDateByChild.rule" />
   </ItemGroup>
 
   <ItemGroup>

@@ -2,6 +2,8 @@
 using Newtonsoft.Json;
 using System.Net.Http.Headers;
 using System.Text;
+using Microsoft.Extensions.Caching.Memory;
+
 
 namespace Lamdat.ADOAutomationTool.Service
 {
@@ -14,6 +16,8 @@ namespace Lamdat.ADOAutomationTool.Service
         private readonly string _apiVersion = "6.0";
         private readonly ILogger _logger;
         private readonly bool _bypassRules;
+        private static readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
+
 
         public AzureDevOpsClient(ILogger logger, string organizationUrl, string project, string personalAccessToken, bool bypassRules)
         {
@@ -145,6 +149,7 @@ namespace Lamdat.ADOAutomationTool.Service
                 throw new ADOAutomationException($"Failed to retreive work item relations, the error was : {ex.Message}");
             }
         }
+
         /// <summary>
         /// Saves work item
         /// </summary>
@@ -152,6 +157,9 @@ namespace Lamdat.ADOAutomationTool.Service
         /// <returns></returns>
         public async Task<bool> SaveWorkItem(WorkItem newWorkItem)
         {
+            if (newWorkItem == null)
+                throw new ArgumentNullException(nameof(newWorkItem));
+
             if (_project == "be9b3917-87e6-42a4-a549-2bc06a7a878f") // ADO Test 
                 return true;
 
@@ -242,6 +250,9 @@ namespace Lamdat.ADOAutomationTool.Service
         public async Task<bool> SaveWorkItemRelations(WorkItem workitem, List<WorkItemRelation> relations)
         {
 
+            if (workitem == null)
+                throw new ArgumentNullException(nameof(workitem));
+
             if (relations == null)
                 return true;
 
@@ -283,5 +294,112 @@ namespace Lamdat.ADOAutomationTool.Service
         }
 
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="teamName"></param>
+        /// <returns></returns>
+        public async Task<List<IterationDetails>> GetAllTeamIterations(string teamName)
+        {
+            var cacheKey = $"AllIterations_{teamName}";
+            var cacheEntryOptions = new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMinutes(2));
+
+            if (_cache.TryGetValue(cacheKey, out List<IterationDetails> iterations))
+            {
+                return iterations;
+            }
+            else
+            {
+                iterations = await GetIterationsFromApi(teamName);
+                _cache.Set(cacheKey, iterations, cacheEntryOptions);
+                return iterations;
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="teamName"></param>
+        /// <returns></returns>
+        private async Task<List<IterationDetails>> GetIterationsFromApi(string teamName)
+        {
+            var allIterations = new List<IterationDetails>();
+
+            try
+            {
+                var url = $"{_collectionURL}/{_project}/{teamName}/_apis/work/teamsettings/iterations";
+                var response = await _client.GetAsync(url);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var jsonString = await response.Content.ReadAsStringAsync();
+                    var iterationResponse = JsonConvert.DeserializeObject<IterationDetailsResponse>(jsonString);
+
+                    allIterations.AddRange(iterationResponse.Value);
+
+                    return allIterations;
+                }
+                else
+                {
+                    var errorMessage = $"Failed to retrieve iteration details. {response.StatusCode}";
+                    if (response.Content != null)
+                    {
+                        var errorContent = await response.Content.ReadAsStringAsync();
+                        errorMessage += $" Error: {errorContent}";
+                    }
+                    _logger.LogError(errorMessage);
+                    throw new ADOAutomationException(errorMessage);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex.Message);
+                throw new ADOAutomationException($"Failed to retrieve iteration details, the error was : {ex.Message}");
+            }
+        }
+
+
+        /// <summary>
+        /// Get IterationDetails By Name
+        /// </summary>
+        /// <param name="iterationName"></param>
+        /// <param name="teamName"></param>
+        /// <returns></returns>
+        /// <exception cref="ADOAutomationException"></exception>
+        public async Task<IterationDetails> GetTeamsIterationDetailsByName(string teamName, string iterationName)
+        {
+            if (string.IsNullOrWhiteSpace(iterationName))
+                throw new ArgumentNullException(nameof(iterationName));
+
+            if (string.IsNullOrWhiteSpace(teamName))
+                throw new ArgumentNullException(nameof(teamName));
+
+            try
+            {
+                var iterations = await GetAllTeamIterations(teamName);
+                if (iterations != null)
+                {
+
+                    var iteration = iterations?.FirstOrDefault(i => i.Path == iterationName);
+                    return iteration;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex.Message);
+                throw new ADOAutomationException($"Failed to retrieve iteration details, the error was : {ex.Message}");
+            }
+        }
+
+
+
+
+
     }
+
+
 }
