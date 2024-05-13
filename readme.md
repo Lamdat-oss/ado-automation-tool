@@ -73,11 +73,20 @@ if(Self.Parent != null){
 In your `.rule` files, you'll have access to a C# context to interact with Azure DevOps objects. Here's how you can use it:
 
 - `Self`: Represents the current work item being processed.
+- `SelfChanges`: Represents the current work item changes. 
 - `Logger`: Allows logging messages.
 - `Client`: Provides access to Azure DevOps API for fetching additional work item details.
 
 Example usage:
 ```csharp
+// Checking if IterationPath has changed
+if (selfChanges.Fields.ContainsKey("System.IterationPath"))
+{
+    var iterChange = selfChanges.Fields["System.IterationPath"];
+    return $"Iteration has changed from '{iterChange.OldValue}' to '{iterChange.NewValue}'";
+}
+
+
 // Accessing work item properties
 Logger.Log(LogLevel.Information, $"Work Item Title: {Self.Title}");
 
@@ -97,8 +106,83 @@ public async Task<WorkItem> GetWorkItem(string workItemId)
 ```
 This function retrieves a work item from Azure DevOps based on the provided work item ID.
 
+---
+
+#### Returned Class: `WorkItem`
+
+The `WorkItem` class represents a work item retrieved from Azure DevOps.
+
+##### Properties
+
+- `Id`: The unique identifier of the work item.
+- `Revision`: The revision number of the work item.
+- `Fields`: A dictionary containing the fields of the work item.
+  - **Description**: Represents the fields and their corresponding values of the work item.
+- `Title`: The title of the work item.
+  - **Description**: Represents the title of the work item.
+- `WorkItemType`: The type of the work item.
+  - **Description**: Represents the type of the work item.
+- `State`: The state of the work item.
+  - **Description**: Represents the current state of the work item.
+- `Project`: The project associated with the work item.
+  - **Description**: Represents the project to which the work item belongs.
+- `Parent`: The parent work item relation.
+  - **Description**: Represents the parent work item relation if applicable.
+- `Children`: The list of child work item relations.
+  - **Description**: Represents the list of child work item relations if applicable.
+- `Relations`: The list of work item relations.
+  - **Description**: Represents the list of work item relations associated with the work item.
+
+---
+
 ### `SaveWorkItem`
 ```csharp
 public async Task<bool> SaveWorkItem(WorkItem newWorkItem)
 ```
 This function saves a new or updated work item to Azure DevOps.
+
+#### `GetAllTeamIterations`
+
+```csharp
+public async Task<List<IterationDetails>> GetAllTeamIterations(string teamName)
+```
+
+This method retrieves all iterations for a specified team in Azure DevOps.
+
+#### Returned Class: `IterationDetails`
+
+The `IterationDetails` class represents details of an iteration in Azure DevOps.
+
+##### Properties
+
+- `Id`: The unique identifier of the iteration.
+  - **Description**: Represents the unique identifier assigned to the iteration.
+- `Name`: The name of the iteration.
+  - **Description**: Represents the name of the iteration.
+- `Path`: The path of the iteration.
+  - **Description**: Represents the path of the iteration within the project hierarchy.
+- `Attributes`: The attributes of the iteration.
+  - **Description**: Represents additional attributes associated with the iteration.
+- `Url`: The URL of the iteration.
+  - **Description**: Represents the URL that can be used to access detailed information about the iteration.
+
+#### Subclass: `IterationAttributes`
+
+The `IterationAttributes` class represents the start and finish dates of an iteration.
+
+##### Properties
+
+- `StartDate`: The start date of the iteration.
+  - **Description**: Represents the date when the iteration starts.
+- `FinishDate`: The finish date of the iteration.
+  - **Description**: Represents the date when the iteration finishes.
+
+#### `GetTeamsIterationDetailsByName`
+
+```csharp
+public async Task<IterationDetails> GetTeamsIterationDetailsByName(string teamName, string iterationName)
+```
+
+This method retrieves details of a specific iteration for a given team in Azure DevOps.
+
+
