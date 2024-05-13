@@ -65,6 +65,7 @@ if (string.IsNullOrWhiteSpace(settings.AllowedCorsOrigin))
 else
     logger.LogInformation($"Azure DevOps allowed CORS origin: {appSettings.AllowedCorsOrigin}");
 
+
 if (string.IsNullOrWhiteSpace(settings.PAT))
     logger.LogWarning($"PAT not set in configuration");
 if (string.IsNullOrWhiteSpace(settings.SharedKey))
