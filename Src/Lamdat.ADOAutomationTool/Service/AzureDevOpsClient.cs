@@ -160,8 +160,9 @@ namespace Lamdat.ADOAutomationTool.Service
                 _logger.LogError(ex.Message);
                 if (ex.InnerException != null)
                     _logger.LogError(ex.InnerException.Message);
+            
                 throw new ADOAutomationException($"Failed to retreive current user, the error was : {ex.Message}");
-
+                
             }
         }
 
