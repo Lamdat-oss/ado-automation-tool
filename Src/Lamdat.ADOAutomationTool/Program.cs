@@ -23,13 +23,20 @@ builder.Services.AddLogging(opt =>
 builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true).AddEnvironmentVariables().AddCommandLine(args);
 builder.Services.Configure<Settings>(builder.Configuration.GetSection("Settings"));
 builder.WebHost.UseKestrel().UseUrls("http://*:5000");
+
+builder.Services.AddAuthentication("BasicAuthentication")
+    .AddScheme<BasicAuthenticationOptions, BasicAuthenticationHandler>("BasicAuthentication", options => { });
+
+
+
 builder.Services.Configure<BasicAuthenticationOptions>(options =>
 {
     var settings = builder.Configuration.GetSection("Settings").Get<Settings>();
-    options.SharedKey = settings?.SharedKey;
+    if (string.IsNullOrWhiteSpace(settings.SharedKey))
+         Console.WriteLine($"Sharred key is not defined or null, please set the shared key");
+    else
+        options.SharedKey = settings?.SharedKey;
 });
-builder.Services.AddAuthentication("BasicAuthentication")
-    .AddScheme<BasicAuthenticationOptions, BasicAuthenticationHandler>("BasicAuthentication", options => { });
 
 builder.Services.AddCors(options =>
 {
@@ -43,7 +50,8 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-
+var settings = app.Services.GetRequiredService<IOptions<Settings>>().Value;
+var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
 if (app.Environment.IsDevelopment())
 {
@@ -58,8 +66,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-var settings = app.Services.GetRequiredService<IOptions<Settings>>().Value;
-var logger = app.Services.GetRequiredService<ILogger<Program>>();
+
 
 var appSettings = builder.Configuration.GetSection("Settings").Get<Settings>();
 if (string.IsNullOrWhiteSpace(settings.CollectionURL))
