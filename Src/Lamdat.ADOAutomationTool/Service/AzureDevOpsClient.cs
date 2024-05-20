@@ -155,7 +155,7 @@ namespace Lamdat.ADOAutomationTool.Service
             catch (Exception ex)
             {
                 _logger.LogError(ex.Message);
-                throw new ADOAutomationException($"Failed to retreive work item relations, the error was : {ex.Message}");
+                throw new ADOAutomationException($"Failed to retreive current user, the error was : {ex.Message}");
             }
         }
 
