@@ -32,9 +32,10 @@ namespace Lamdat.ADOAutomationTool.Service
             if (logger == null)
                 throw new ArgumentNullException(nameof(logger));
 
+            HttpClientHandler handler = new HttpClientHandler();
             if (notValidCerts == true)
             {
-                var handler = new HttpClientHandler
+                handler = new HttpClientHandler
                 {
                     ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
                 };
@@ -45,7 +46,8 @@ namespace Lamdat.ADOAutomationTool.Service
             _personalAccessToken = personalAccessToken;
             _project = project;
             _bypassRules = bypassRules;
-            _client = new HttpClient();
+            _client = new HttpClient(handler);
+
             _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
                 Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes(string.Format("{0}:{1}", "", personalAccessToken))));
@@ -156,8 +158,9 @@ namespace Lamdat.ADOAutomationTool.Service
             catch (Exception ex)
             {
                 _logger.LogError(ex.Message);
-                if(ex.InnerException!= null)
+                if (ex.InnerException != null)
                     _logger.LogError(ex.InnerException.Message);
+            
                 throw new ADOAutomationException($"Failed to retreive current user, the error was : {ex.Message}");
                 
             }
