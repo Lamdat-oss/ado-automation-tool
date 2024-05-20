@@ -54,7 +54,7 @@ Alternatively, you can use environment variables to configure the tool. Set the 
 - `SETTINGS__PAT`: Personal Access Token (PAT) used for authentication.
 - `SETTINGS__BYPASSRULES`: Boolean value indicating whether to bypass Azure DevOps rules.
 - `SETTINGS__SHAREDKEY`: Key used to authenticate to the web service.
-- `SETTINGS__BYPASSRULES__NOTVALIDCERTIFICATES`: If to allow working with not valid azure devops certificates
+- `SETTINGS__NOTVALIDCERTIFICATES`: If to allow working with not valid azure devops certificates
 
 ## Usage
 
