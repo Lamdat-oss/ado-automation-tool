@@ -6,10 +6,12 @@
 
         public string PAT { get; set; }
 
-        public bool BypassRules { get; set; }
+        public bool BypassRules { get; set; } = true;
 
         public string SharedKey { get; set; }
 
         public string AllowedCorsOrigin { get; set; }
+
+        public bool NotValidCertificates { get; set; } = false;
     }
 }

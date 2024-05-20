@@ -20,7 +20,7 @@ namespace Lamdat.ADOAutomationTool.Service
         {
             try
             {
-                var adoClient = new AzureDevOpsClient(_logger, _settingsAccessor.CollectionURL, string.Empty, _settingsAccessor.PAT, _settingsAccessor.BypassRules);
+                var adoClient = new AzureDevOpsClient(_logger, _settingsAccessor.CollectionURL, string.Empty, _settingsAccessor.PAT, _settingsAccessor.BypassRules, _settingsAccessor.NotValidCertificates);
                 WebHookHandler.SystemUser = await adoClient.WhoAmI();
             }
             catch (Exception ex)
@@ -41,7 +41,7 @@ namespace Lamdat.ADOAutomationTool.Service
             {
                 WebHookInfo? payload = JsonConvert.DeserializeObject<WebHookInfo>(webHookBody);
 
-                var adoClient = new AzureDevOpsClient(_logger, _settingsAccessor.CollectionURL, payload.Project, _settingsAccessor.PAT, _settingsAccessor.BypassRules);
+                var adoClient = new AzureDevOpsClient(_logger, _settingsAccessor.CollectionURL, payload.Project, _settingsAccessor.PAT, _settingsAccessor.BypassRules, _settingsAccessor.NotValidCertificates);
                 if (payload.EventType == "workitem.created")
                     payload.Resource.WorkItemId = payload.Resource.Id;
 
