@@ -12,6 +12,8 @@ RUN dotnet publish -c Release -o out
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0.4-jammy
 
+RUN apt update && apt install -y openssl curl net-tools 
+
 WORKDIR /app
 
 COPY --from=build-stage /app/out .
