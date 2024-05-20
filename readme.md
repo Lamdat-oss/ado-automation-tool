@@ -5,6 +5,18 @@ The **ADO Automation Tool** is a web API designed to listen to webhooks from Azu
 ## Configuration
 
 The tool can be configured using either a JSON configuration file, command line arguments, or environment variables.
+Scripts/rules folder can be mounted into /app/scripts folder
+
+### TLS configuration
+1.  create pfx for tls using PowerShell
+```$cert = New-SelfSignedCertificate -KeyLength 2048 -KeyAlgorithm RSA -Type SSLServerAuthentication -FriendlyName "adoAutomationTool" -NotAfter 2030-01-01 -Subject "adoautomationtool.example.com")
+$certPass = Read-Host -Prompt "Password" -AsSecureString
+Export-PfxCertificate -FilePath "adoautomation.pfx" -Cert $cert -Password $certPass
+```
+2. set the path of the pfx file to use in environment variable 'ASPNETCORE_Kestrel__Certificates__Default__Path', command line or the app settings file.
+3. set the password for the pfx in environment variable 'ASPNETCORE_Kestrel__Certificates__Default__Password' command line or the app settings file.
+4. mount the pfx to /app folder
+
 
 ### JSON Configuration
 
@@ -16,7 +28,8 @@ To use JSON configuration, create a `config.json` file with the following struct
     "CollectionURL": "",
     "PAT": "",
     "BypassRules": true,
-    "SharedKey": ""
+    "SharedKey": "",
+    "NotValidCertificates": false
   }
 }
 ```
@@ -26,17 +39,22 @@ To use JSON configuration, create a `config.json` file with the following struct
 You can also specify configuration settings through command line arguments when running the application. Here's how you can do it:
 
 ```bash
-docker run --rm -it  -v .\Examples:/app/scripts   -p 5000:5000/tcp   -e "SETTINGS__COLLECTIONURL=https:///<azure-devops-host>/<collection> | dev.azure.com>/<org>" -e  "SETTINGS__PAT=<PAT>" -e "SETTINGS__BYPASSRULES=true" -e "SETTINGS__SHAREDKEY=<key>" adoautomationtool/adoautomationtool:latest
+docker run --rm -it  -v ./Examples:/app/scripts   -p 5000:5000/tcp   -e "SETTINGS__COLLECTIONURL=https:///<azure-devops-host>/<collection> | dev.azure.com>/<org>" -e  "SETTINGS__PAT=<PAT>" -e "SETTINGS__BYPASSRULES=true" -e "SETTINGS__SHAREDKEY=<key>" adoautomationtool/adoautomationtool:latest
+
+# with https
+docker run -p 5000:5000/tcp  -p 5001:5001 --rm -it  -v ./Examples:/app/scripts -v ./adoautomation.pfx:/app/adoautomation.pfx -e -e ASPNETCORE_HTTPS_PORT=5001 -e ASPNETCORE_Kestrel__Certificates__Default__Password="***" -e ASPNETCORE_Kestrel__Certificates__Default__Path=/app/adoautomation.pfx  -e "SETTINGS__COLLECTIONURL=https://azuredevops.syncnow.io/NovaCollection" -e  "SETTINGS__PAT=****" -e "SETTINGS__BYPASSRULES=true" -e "SETTINGS__SHAREDKEY=***"   adoautomationtool/adoautomationtool:0.1.63
+
 ```
 
 ### Environment Variables
 
 Alternatively, you can use environment variables to configure the tool. Set the following environment variables:
 
-- `ADO_COLLECTION_URL`: URL of the Azure DevOps collection.
-- `ADO_PAT`: Personal Access Token (PAT) used for authentication.
-- `ADO_BYPASS_RULES`: Boolean value indicating whether to bypass Azure DevOps rules.
-- `ADO_SHARED_KEY`: Key used to authenticate to the web service.
+- `SETTINGS__COLLECTIONURL`: URL of the Azure DevOps collection.
+- `SETTINGS__PAT`: Personal Access Token (PAT) used for authentication.
+- `SETTINGS__BYPASSRULES`: Boolean value indicating whether to bypass Azure DevOps rules.
+- `SETTINGS__SHAREDKEY`: Key used to authenticate to the web service.
+- `SETTINGS__BYPASSRULES__NOTVALIDCERTIFICATES`: If to allow working with not valid azure devops certificates
 
 ## Usage
 
@@ -46,11 +64,7 @@ Alternatively, you can use environment variables to configure the tool. Set the 
 4. Start the application.
 5. Your ADO Automation Tool is now ready to receive webhooks and execute scripts.
 
-## create pfx for tls using PowerShell
-```$cert = New-SelfSignedCertificate -KeyLength 2048 -KeyAlgorithm RSA -Type SSLServerAuthentication -FriendlyName "adoAutomationTool" -NotAfter 2030-01-01 -Subject "adoautomationtool.example.com")
-$certPass = Read-Host -Prompt "Password" -AsSecureString
-Export-PfxCertificate -FilePath "adoautomation.pfx" -Cert $cert -Password $certPass
-```
+
 
 # Rules language
 
