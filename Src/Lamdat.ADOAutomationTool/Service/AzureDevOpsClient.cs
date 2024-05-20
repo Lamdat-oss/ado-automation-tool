@@ -19,7 +19,7 @@ namespace Lamdat.ADOAutomationTool.Service
         private static readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
 
 
-        public AzureDevOpsClient(ILogger logger, string organizationUrl, string project, string personalAccessToken, bool bypassRules)
+        public AzureDevOpsClient(ILogger logger, string organizationUrl, string project, string personalAccessToken, bool bypassRules, bool notValidCerts)
         {
 
             if (string.IsNullOrEmpty(organizationUrl))
@@ -30,6 +30,15 @@ namespace Lamdat.ADOAutomationTool.Service
 
             if (logger == null)
                 throw new ArgumentNullException(nameof(logger));
+
+            if (notValidCerts == true)
+            {
+                var handler = new HttpClientHandler
+                {
+                    ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+                };
+            }
+
 
             _collectionURL = organizationUrl;
             _personalAccessToken = personalAccessToken;
