@@ -79,6 +79,8 @@ if (string.IsNullOrWhiteSpace(settings.AllowedCorsOrigin))
 else
     logger.LogInformation($"Azure DevOps allowed CORS origin: {appSettings.AllowedCorsOrigin}");
 
+logger.LogInformation($"If to allow not valid Azure Devops Certificates: {appSettings.NotValidCertificates}");
+
 
 if (string.IsNullOrWhiteSpace(settings.PAT))
     logger.LogWarning($"PAT not set in configuration");
