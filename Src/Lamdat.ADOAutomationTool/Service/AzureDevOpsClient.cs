@@ -3,6 +3,7 @@ using Newtonsoft.Json;
 using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 
 
 namespace Lamdat.ADOAutomationTool.Service
@@ -155,7 +156,10 @@ namespace Lamdat.ADOAutomationTool.Service
             catch (Exception ex)
             {
                 _logger.LogError(ex.Message);
+                if(ex.InnerException!= null)
+                    _logger.LogError(ex.InnerException.Message);
                 throw new ADOAutomationException($"Failed to retreive current user, the error was : {ex.Message}");
+                
             }
         }
 

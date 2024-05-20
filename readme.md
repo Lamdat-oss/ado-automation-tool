@@ -13,8 +13,8 @@ Scripts/rules folder can be mounted into /app/scripts folder
 $certPass = Read-Host -Prompt "Password" -AsSecureString
 Export-PfxCertificate -FilePath "adoautomation.pfx" -Cert $cert -Password $certPass
 ```
-2. set the path of the pfx file to use in environment variable 'ASPNETCORE_Kestrel__Certificates__Default__Path', command line or the app settings file.
-3. set the password for the pfx in environment variable 'ASPNETCORE_Kestrel__Certificates__Default__Password' command line or the app settings file.
+2. set the path of the pfx file to use in environment variable 'Kestrel__Endpoints__Https__Certificate__Path', command line or the app settings file.
+3. set the password for the pfx in environment variable 'Kestrel__Endpoints__Https__Certificate__Password' command line or the app settings file.
 4. mount the pfx to /app folder
 
 
@@ -42,7 +42,7 @@ You can also specify configuration settings through command line arguments when 
 docker run --rm -it  -v ./Examples:/app/scripts   -p 5000:5000/tcp   -e "SETTINGS__COLLECTIONURL=https:///<azure-devops-host>/<collection> | dev.azure.com>/<org>" -e  "SETTINGS__PAT=<PAT>" -e "SETTINGS__BYPASSRULES=true" -e "SETTINGS__SHAREDKEY=<key>" adoautomationtool/adoautomationtool:latest
 
 # with https
-docker run -p 5000:5000/tcp  -p 5001:5001 --rm -it  -v ./Examples:/app/scripts -v ./adoautomation.pfx:/app/adoautomation.pfx -e -e ASPNETCORE_HTTPS_PORT=5001 -e ASPNETCORE_Kestrel__Certificates__Default__Password="***" -e ASPNETCORE_Kestrel__Certificates__Default__Path=/app/adoautomation.pfx  -e "SETTINGS__COLLECTIONURL=https://azuredevops.syncnow.io/NovaCollection" -e  "SETTINGS__PAT=****" -e "SETTINGS__BYPASSRULES=true" -e "SETTINGS__SHAREDKEY=***"   adoautomationtool/adoautomationtool:0.1.63
+docker run -p 5000:5000/tcp  -p 5001:5001 --rm -it  -v ./Examples:/app/scripts -v ./adoautomation.pfx:/app/adoautomation.pfx -e -e ASPNETCORE_HTTPS_PORT=5001 -e Kestrel__Endpoints__Https__Certificate__Password="***" -e Kestrel__Endpoints__Https__Certificate__Path=/app/adoautomation.pfx  -e "SETTINGS__COLLECTIONURL=https://azuredevops.syncnow.io/NovaCollection" -e  "SETTINGS__PAT=****" -e "SETTINGS__BYPASSRULES=true" -e "SETTINGS__SHAREDKEY=***"   adoautomationtool/adoautomationtool:0.1.63
 
 ```
 
