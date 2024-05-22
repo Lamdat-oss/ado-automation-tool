@@ -40,7 +40,8 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
 
                 var parallelOptions = new ParallelOptions
                 {
-                    MaxDegreeOfParallelism = Environment.ProcessorCount * 2
+                    //MaxDegreeOfParallelism = Environment.ProcessorCount * 2 // we need to fix for optimistic concurrency
+                    MaxDegreeOfParallelism = 1
                 };
 
                 Parallel.ForEach(scriptFiles, parallelOptions, async scriptFile =>
