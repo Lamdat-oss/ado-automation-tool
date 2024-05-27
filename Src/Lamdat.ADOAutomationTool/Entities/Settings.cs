@@ -13,5 +13,7 @@
         public string AllowedCorsOrigin { get; set; }
 
         public bool NotValidCertificates { get; set; } = false;
+
+        public bool EnableAutoHttpsRedirect { get; set; } = true;
     }
 }
