@@ -33,7 +33,7 @@ builder.Services.Configure<BasicAuthenticationOptions>(options =>
 {
     var settings = builder.Configuration.GetSection("Settings").Get<Settings>();
     if (string.IsNullOrWhiteSpace(settings.SharedKey))
-         Console.WriteLine($"Sharred key is not defined or null, please set the shared key");
+        Console.WriteLine($"Sharred key is not defined or null, please set the shared key");
     else
         options.SharedKey = settings?.SharedKey;
 });
@@ -59,7 +59,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -69,6 +69,10 @@ app.MapControllers();
 
 
 var appSettings = builder.Configuration.GetSection("Settings").Get<Settings>();
+
+if (appSettings?.EnableAutoHttpsRedirect == true)
+    app.UseHttpsRedirection();
+
 if (string.IsNullOrWhiteSpace(settings.CollectionURL))
     logger.LogWarning($"Azure DevOps Collection URL not set in configuration");
 else
