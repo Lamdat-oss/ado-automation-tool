@@ -13,6 +13,8 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
     public class CSharpScriptEngine
     {
         private readonly ILogger _logger;
+        private const int MAX_ATTEMPTS = 3;
+
         public CSharpScriptEngine(ILogger logger)
         {
             _logger = logger;
@@ -46,34 +48,58 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
 
                 Parallel.ForEach(scriptFiles, parallelOptions, async scriptFile =>
                 {
-                    try
+                    var attempts = 1;
+                    var succeeded = false;
+                    while (!succeeded && attempts <= MAX_ATTEMPTS)
                     {
-                        _logger.Log(LogLevel.Information, $"Event '{context.EventType}', executing script {scriptFile}");
+                        try
+                        {
+                            if (attempts == 1)
+                                _logger.Log(LogLevel.Information, $"Event '{context.EventType}', executing script {scriptFile}");
+                            else
+                                _logger.Log(LogLevel.Information, $"Attempt {attempts.ToString()}, Event '{context.EventType}', executing script {scriptFile}");
 
-                        string scriptCode = await File.ReadAllTextAsync(scriptFile);
-                        ScriptOptions options = ScriptOptions.Default
-                            .AddReferences(typeof(WebHookInfo).Assembly)
-                            .AddImports("Lamdat.ADOAutomationTool.Entities")
-                            .AddImports("Microsoft.Extensions.Logging")
-                            .AddImports("System");
-                        await CSharpScript.EvaluateAsync(scriptCode, options, globals: context);
-                        var compiledScript = CSharpScript.Create(scriptCode, options, globalsType: context.GetType());
-                        await compiledScript.RunAsync(globals: context);
+                            attempts++;
 
-                        await context.Client.SaveWorkItem(context.Self);
+                            string scriptCode = await File.ReadAllTextAsync(scriptFile);
+                            ScriptOptions options = ScriptOptions.Default
+                                .AddReferences(typeof(WebHookInfo).Assembly)
+                                .AddImports("Lamdat.ADOAutomationTool.Entities")
+                                .AddImports("Microsoft.Extensions.Logging")
+                                .AddImports("System");
+                            await CSharpScript.EvaluateAsync(scriptCode, options, globals: context);
+                            var compiledScript = CSharpScript.Create(scriptCode, options, globalsType: context.GetType());
+                            await compiledScript.RunAsync(globals: context);
+
+                            await context.Client.SaveWorkItem(context.Self);
+                            succeeded = true;
+                        }
+                        catch (CompilationErrorException ex)
+                        {
+                            succeeded = false;
+                            var err = $"Script compilation error in file '{scriptFile}': {ex.Message}";
+                            if (attempts < MAX_ATTEMPTS)
+                                _logger.LogWarning($"Attempt {attempts} failed with an error: {err}, will retry");
+                            else
+                            {
+                                _logger.LogError(err);
+                                errCol.GetOrAdd(scriptFile, err);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            succeeded = false;
+                            var err = $"Error executing script '{scriptFile}': {ex.Message}";
+                            if (attempts < MAX_ATTEMPTS)
+                                _logger.LogWarning($"Attempt {attempts} failed with an error: {err}, will retry");
+                            else
+                            {
+                                _logger.LogError(err);
+                                errCol.GetOrAdd(scriptFile, err);
+                            }
+                        }
                     }
-                    catch (CompilationErrorException ex)
-                    {
-                        var err = $"Script compilation error in file '{scriptFile}': {ex.Message}";
-                        _logger.LogError(err);
-                        errCol.GetOrAdd(scriptFile, err);
-                    }
-                    catch (Exception ex)
-                    {
-                        var err = $"Error executing script '{scriptFile}': {ex.Message}";
-                        _logger.LogError(err);
-                        errCol.GetOrAdd(scriptFile, err);
-                    }
+
                 });
 
                 _logger.Log(LogLevel.Information, $"Done Executing all scripts");
