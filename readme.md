@@ -29,7 +29,9 @@ To use JSON configuration, create a `config.json` file with the following struct
     "PAT": "",
     "BypassRules": true,
     "SharedKey": "",
-    "NotValidCertificates": false
+    "AllowedCorsOrigin": "*",
+    "NotValidCertificates": false,
+    "EnableAutoHttpsRedirect": true
   }
 }
 ```
@@ -42,7 +44,7 @@ You can also specify configuration settings through command line arguments when 
 docker run --rm -it  -v ./Examples:/app/scripts   -p 5000:5000/tcp   -e "SETTINGS__COLLECTIONURL=https:///<azure-devops-host>/<collection> | dev.azure.com>/<org>" -e  "SETTINGS__PAT=<PAT>" -e "SETTINGS__BYPASSRULES=true" -e "SETTINGS__SHAREDKEY=<key>" adoautomationtool/adoautomationtool:latest
 
 # with https
-docker run -p 5000:5000/tcp  -p 5001:5001 --rm -it  -v ./Examples:/app/scripts -v ./adoautomation.pfx:/app/adoautomation.pfx -e -e ASPNETCORE_HTTPS_PORT=5001 -e Kestrel__Endpoints__Https__Certificate__Password="***" -e Kestrel__Endpoints__Https__Certificate__Path=/app/adoautomation.pfx  -e "SETTINGS__COLLECTIONURL=https://azuredevops.syncnow.io/NovaCollection" -e  "SETTINGS__PAT=****" -e "SETTINGS__BYPASSRULES=true" -e "SETTINGS__SHAREDKEY=***"   adoautomationtool/adoautomationtool:0.1.63
+docker run -p 5000:5000/tcp  -p 5001:5001 --rm -it  -v ./Examples:/app/scripts -v ./adoautomation.pfx:/app/adoautomation.pfx -e -e ASPNETCORE_HTTPS_PORT=5001 -e Kestrel__Endpoints__Https__Certificate__Password="***" -e Kestrel__Endpoints__Https__Certificate__Path=/app/adoautomation.pfx  -e "SETTINGS__COLLECTIONURL=https://azuredevops.syncnow.io/NovaCollection" -e  "SETTINGS__PAT=****" -e "SETTINGS__BYPASSRULES=true" -e "SETTINGS__SHAREDKEY=***"   adoautomationtool/adoautomationtool:0.1.74
 
 ```
 
@@ -55,6 +57,7 @@ Alternatively, you can use environment variables to configure the tool. Set the 
 - `SETTINGS__BYPASSRULES`: Boolean value indicating whether to bypass Azure DevOps rules.
 - `SETTINGS__SHAREDKEY`: Key used to authenticate to the web service.
 - `SETTINGS__NOTVALIDCERTIFICATES`: If to allow working with not valid azure devops certificates
+- `SETTINGS__ENABLEAUTOHTTPSREDIRECT`: If to enable auto http to https redirect
 
 ## Usage
 
