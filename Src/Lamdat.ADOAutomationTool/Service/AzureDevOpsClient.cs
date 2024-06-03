@@ -160,9 +160,9 @@ namespace Lamdat.ADOAutomationTool.Service
                 _logger.LogError(ex.Message);
                 if (ex.InnerException != null)
                     _logger.LogError(ex.InnerException.Message);
-            
+
                 throw new ADOAutomationException($"Failed to retreive current user, the error was : {ex.Message}");
-                
+
             }
         }
 
@@ -171,7 +171,7 @@ namespace Lamdat.ADOAutomationTool.Service
         /// </summary>
         /// <param name="workItem"></param>
         /// <returns></returns>
-        public async Task<bool> SaveWorkItem(WorkItem newWorkItem)
+        public async Task<bool> SaveWorkItem(WorkItem newWorkItem, bool logErrorOtherwiseWarn)
         {
             if (newWorkItem == null)
                 throw new ArgumentNullException(nameof(newWorkItem));
@@ -245,13 +245,19 @@ namespace Lamdat.ADOAutomationTool.Service
                         var errorContent = await response.Content.ReadAsStringAsync();
                         errorMessage += $" Error: {errorContent}";
                     }
-                    _logger.LogError(errorMessage);
+                    if(logErrorOtherwiseWarn)
+                        _logger.LogError(errorMessage);
+                    else
+                        _logger.LogWarning(errorMessage);
                     throw new ADOAutomationException(errorMessage);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError($"An error occurred: {ex.Message}");
+                if (logErrorOtherwiseWarn)
+                    _logger.LogError($"An error occurred: {ex.Message}");
+                else
+                    _logger.LogWarning($"An error occurred: {ex.Message}");
                 throw new ADOAutomationException($"Failed to save work item: {ex.Message}");
             }
         }
