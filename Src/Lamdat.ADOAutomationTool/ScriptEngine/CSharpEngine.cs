@@ -74,7 +74,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                             var compiledScript = CSharpScript.Create(scriptCode, options, globalsType: context.GetType());
                             await compiledScript.RunAsync(globals: context);
 
-                            await context.Client.SaveWorkItem(context.Self);
+                            await context.Client.SaveWorkItem(context.Self, attempts == MAX_ATTEMPTS);
                             succeeded = true;
                         }
                         catch (CompilationErrorException ex)
