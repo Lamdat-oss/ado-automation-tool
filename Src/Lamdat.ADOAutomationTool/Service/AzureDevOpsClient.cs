@@ -171,7 +171,7 @@ namespace Lamdat.ADOAutomationTool.Service
         /// </summary>
         /// <param name="workItem"></param>
         /// <returns></returns>
-        public async Task<bool> SaveWorkItem(WorkItem newWorkItem, bool logErrorOtherwiseWarn)
+        public async Task<bool> SaveWorkItem(WorkItem newWorkItem, bool logErrorOtherwiseWarn = false)
         {
             if (newWorkItem == null)
                 throw new ArgumentNullException(nameof(newWorkItem));
@@ -245,7 +245,7 @@ namespace Lamdat.ADOAutomationTool.Service
                         var errorContent = await response.Content.ReadAsStringAsync();
                         errorMessage += $" Error: {errorContent}";
                     }
-                    if(logErrorOtherwiseWarn)
+                    if (logErrorOtherwiseWarn)
                         _logger.LogError(errorMessage);
                     else
                         _logger.LogWarning(errorMessage);
