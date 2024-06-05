@@ -5,6 +5,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.Net.Sockets;
 using System.Text;
 
 
@@ -67,6 +68,8 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                                 .AddImports("Lamdat.ADOAutomationTool.Entities")
                                 .AddImports("Microsoft.Extensions.Logging")
                                 .AddImports("System");
+                            context.Self = await context.Client.GetWorkItem(context.Self.Id);  // refresh the entity if it was updated before
+
                             await CSharpScript.EvaluateAsync(scriptCode, options, globals: context);
                             var compiledScript = CSharpScript.Create(scriptCode, options, globalsType: context.GetType());
                             await compiledScript.RunAsync(globals: context);
