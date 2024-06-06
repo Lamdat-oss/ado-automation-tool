@@ -10,6 +10,7 @@ namespace Lamdat.ADOAutomationTool.Entities
         [JsonProperty("resource")]
         public WebHookResource Resource { get; set; }
 
+      
         public string? Project { get { return ResourceContainers?.project?.id?.ToString(); } }
 
         [JsonProperty("resourceContainers")]

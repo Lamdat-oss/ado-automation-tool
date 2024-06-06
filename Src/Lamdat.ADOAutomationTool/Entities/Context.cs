@@ -4,7 +4,7 @@ namespace Lamdat.ADOAutomationTool.Entities
 {
     public class Context
     {
-        public Context(WebHookResource webHookResource, Dictionary<string, object> selfChanges, WorkItem workitem, string project, string eventType, ILogger logger, AzureDevOpsClient client)
+        public Context(WebHookResource webHookResource, Dictionary<string, object> selfChanges, Relations relationChanges, WorkItem workitem, string project, string eventType, ILogger logger, AzureDevOpsClient client)
         {
             WebHookResource = webHookResource;
             SelfChanges = selfChanges;
@@ -13,6 +13,7 @@ namespace Lamdat.ADOAutomationTool.Entities
             EventType = eventType;
             Logger = logger;
             Client = client;
+            RelationChanges = relationChanges;
         }
 
         public string? Project { get; set; }
@@ -28,5 +29,7 @@ namespace Lamdat.ADOAutomationTool.Entities
         public AzureDevOpsClient Client { get; private set; }
 
         public Dictionary<string, object> SelfChanges { get; set; }
+
+        public Relations RelationChanges { get; set; }
     }
 }
