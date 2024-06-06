@@ -74,6 +74,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                             context.Self = await context.Client.GetWorkItem(context.Self.Id);  // refresh the entity if it was updated before
 
                             //await CSharpScript.EvaluateAsync(scriptCode, options, globals: context);
+
                             var compiledScript = CSharpScript.Create(scriptCode, options, globalsType: context.GetType());
                             await compiledScript.RunAsync(globals: context);
 
