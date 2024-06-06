@@ -46,9 +46,10 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                     //MaxDegreeOfParallelism = Environment.ProcessorCount * 2 // we need to fix for optimistic concurrency
                     MaxDegreeOfParallelism = 1
                 };
-
-                Parallel.ForEach(scriptFiles, parallelOptions, async scriptFile =>
-                {
+                foreach (var scriptFile in scriptFiles)
+                {                
+                //Parallel.ForEach(scriptFiles, parallelOptions, async scriptFile =>
+                
                     var attempts = 1;
                     var succeeded = false;
                     while (!succeeded && attempts <= MAX_ATTEMPTS)
@@ -56,9 +57,9 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                         try
                         {
                             if (attempts == 1)
-                                _logger.Log(LogLevel.Information, $"Event '{context.EventType}', executing script {scriptFile}");
+                                _logger.Log(LogLevel.Information, $"**** Event:'{context.EventType}'; Workitem type:'{context.Self.WorkItemType}',Workitem Id: {context.Self.Id}, executing script {scriptFile} ****");
                             else
-                                _logger.Log(LogLevel.Information, $"Attempt {attempts.ToString()}, Event '{context.EventType}', executing script {scriptFile}");
+                                _logger.Log(LogLevel.Information, $"** Attempt {attempts.ToString()}, Event '{context.EventType}', executing script {scriptFile} **");
 
                             attempts++;
 
@@ -67,10 +68,13 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                                 .AddReferences(typeof(WebHookInfo).Assembly)
                                 .AddImports("Lamdat.ADOAutomationTool.Entities")
                                 .AddImports("Microsoft.Extensions.Logging")
-                                .AddImports("System");
+                                .AddImports("System")
+                                .AddImports("System.Linq")
+                                .AddImports("System.Threading.Tasks");
                             context.Self = await context.Client.GetWorkItem(context.Self.Id);  // refresh the entity if it was updated before
 
-                            await CSharpScript.EvaluateAsync(scriptCode, options, globals: context);
+                            //await CSharpScript.EvaluateAsync(scriptCode, options, globals: context);
+
                             var compiledScript = CSharpScript.Create(scriptCode, options, globalsType: context.GetType());
                             await compiledScript.RunAsync(globals: context);
 
@@ -80,30 +84,30 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                         catch (CompilationErrorException ex)
                         {
                             succeeded = false;
-                            var err = $"Script compilation error in file '{scriptFile}': {ex.Message}";
+                            var err0 = $"Script compilation error in file '{scriptFile}': {ex.Message}";
                             if (attempts < MAX_ATTEMPTS)
-                                _logger.LogWarning($"Attempt {attempts} failed with an error: {err}, will retry");
+                                _logger.LogWarning($"Attempt {attempts} failed with an error: {err0}, will retry");
                             else
                             {
-                                _logger.LogError(err);
-                                errCol.GetOrAdd(scriptFile, err);
+                                _logger.LogError(err0);
+                                errCol.GetOrAdd(scriptFile, err0);
                             }
                         }
                         catch (Exception ex)
                         {
                             succeeded = false;
-                            var err = $"Error executing script '{scriptFile}': {ex.Message}";
+                            var err1 = $"Error executing script '{scriptFile}': {ex.Message}";
                             if (attempts < MAX_ATTEMPTS)
-                                _logger.LogWarning($"Attempt {attempts} failed with an error: {err}, will retry");
+                                _logger.LogWarning($"Attempt {attempts} failed with an error: {err1}, will retry");
                             else
                             {
-                                _logger.LogError(err);
-                                errCol.GetOrAdd(scriptFile, err);
+                                _logger.LogError(err1);
+                                errCol.GetOrAdd(scriptFile, err1);
                             }
                         }
                     }
 
-                });
+                };
 
                 _logger.Log(LogLevel.Information, $"Done Executing all scripts");
             }

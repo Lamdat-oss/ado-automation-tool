@@ -22,6 +22,7 @@ namespace Lamdat.ADOAutomationTool.Service
 
         public AzureDevOpsClient(ILogger logger, string organizationUrl, string project, string personalAccessToken, bool bypassRules, bool notValidCerts)
         {
+            List<string> errors = new List<string>();
 
             if (string.IsNullOrEmpty(organizationUrl))
                 throw new ArgumentNullException(nameof(organizationUrl));
@@ -417,11 +418,69 @@ namespace Lamdat.ADOAutomationTool.Service
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="workItemId"></param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentNullException"></exception>
+        /// <exception cref="ADOAutomationException"></exception>
+        public async Task<ADOUser> GetLastChangedByUserForWorkItem(int workItemId)
+        {
+            if (workItemId <= 0)
+                throw new ArgumentNullException(nameof(workItemId));
 
+            try
+            {
+                var url = $"{_collectionURL}/{_project}/_apis/wit/workitems/{workItemId}/revisions?api-version={_apiVersion}";
 
+                var response = await _client.GetAsync(url);
 
+                if (response.IsSuccessStatusCode)
+                {
+                    var jsonString = await response.Content.ReadAsStringAsync();
+                    var revisions = JsonConvert.DeserializeObject<RevisionResponse>(jsonString);
 
+                    var lastRevision = revisions.Value.OrderByDescending(r => r.Fields.SystemChangedDate).FirstOrDefault();
+
+                    if (lastRevision != null)
+                    {
+                        return new ADOUser
+                        {
+                            Identity = new Identity()
+                            {
+                                DisplayName = lastRevision.Fields.SystemChangedBy.DisplayName,
+                                EntityId = lastRevision.Fields.SystemChangedBy.Id,
+                                SubHeader = lastRevision.Fields.SystemChangedBy.UniqueName
+                            },
+
+                        };
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"No revisions found for work item {workItemId}");
+                        return null;
+                    }
+                }
+                else
+                {
+                    var errorMessage = $"Failed to retrieve revisions for work item {workItemId}.";
+                    if (response.Content != null)
+                    {
+                        var errorContent = await response.Content.ReadAsStringAsync();
+                        errorMessage += $" Error: {errorContent}";
+                    }
+                    _logger.LogError(errorMessage);
+                    throw new ADOAutomationException(errorMessage);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex.Message);
+                throw new ADOAutomationException($"Failed to retrieve revisions for work item {workItemId}, the error was : {ex.Message}");
+            }
+        }
     }
-
-
 }
+
+

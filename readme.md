@@ -90,7 +90,31 @@ if(Self.Parent != null){
 In your `.rule` files, you'll have access to a C# context to interact with Azure DevOps objects. Here's how you can use it:
 
 - `Self`: Represents the current work item being processed.
-- `SelfChanges`: Represents the current work item changes. 
+- `SelfChanges`: Represents the current work item changes, dictionary object.
+- `RelationChanges`: Represents the current work item relations changes - reprsented by this foratt
+    ```
+          "RelationChanges": {
+                "Removed": [
+                    {
+                        "Attributes": {
+                            "IsLocked": false,
+                            "Name": "Child"
+                        },
+                        "Rel": "System.LinkTypes.Hierarchy-Forward",
+                        "Url": "https://azuredevops.syncnow.io/NovaCollection/cf5ef574-eece-4cf6-947f-0d1dbb1a1a60/_apis/wit/workItems/5"
+                    }
+                ],
+                 "Added": [
+                    {
+                        "Attributes": {
+                            "IsLocked": false,
+                            "Name": "Child"
+                        },
+                        "Rel": "System.LinkTypes.Hierarchy-Reverse",
+                        "Url": "https://azuredevops.syncnow.io/NovaCollection/cf5ef574-eece-4cf6-947f-0d1dbb1a1a60/_apis/wit/workItems/2"
+                    }
+            },
+    ```
 - `Logger`: Allows logging messages.
 - `Client`: Provides access to Azure DevOps API for fetching additional work item details.
 

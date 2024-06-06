@@ -45,6 +45,7 @@ namespace Lamdat.ADOAutomationTool.Service
                 if (payload.EventType == "workitem.created")
                     payload.Resource.WorkItemId = payload.Resource.Id;
 
+                ADOUser? lastRevisionUser = await adoClient.GetLastChangedByUserForWorkItem(payload.Resource.WorkItemId);
                 WorkItem? witRcv = await adoClient.GetWorkItem(payload.Resource.WorkItemId);
                 Dictionary<string, object> selfChangedDic;
                 if (payload.EventType == "workitem.updated")
@@ -52,28 +53,40 @@ namespace Lamdat.ADOAutomationTool.Service
                 else
                     selfChangedDic = new Dictionary<string, object>();
 
-                var context = new Context(webHookResource: payload.Resource, selfChanges: selfChangedDic, workitem: witRcv, project: payload.Project, eventType: payload.EventType, logger: _logger, client: adoClient);
+                var context = new Context(webHookResource: payload.Resource, selfChanges: selfChangedDic, relationChanges: payload.Resource.Relations, workitem: witRcv, project: payload.Project, eventType: payload.EventType, logger: _logger, client: adoClient);
 
                 if (payload.EventType == "workitem.updated")
                 {
-                    var systemUserID = SystemUser.Identity.TeamFoundationId;
-                    dynamic? userChanged = null;
-                    var userChangedSuccess = witRcv.Fields.TryGetValue("System.ChangedBy", out userChanged);
-                    if (userChangedSuccess == false)
-                        _logger.LogWarning("Workitem changed user not found, will not run sripts");
+                    var systemUserUniqueName = SystemUser.Identity.SubHeader;
+                    //dynamic? userChanged = null;
+                    //var userChangedSuccess = witRcv.Fields.TryGetValue("System.ChangedBy", out userChanged);
+                    //if (lastRevisionUser == null)
+                    //    _logger.LogDebug("No Revisions found");
+                    //else
+                    //{
+                    var nonTriggerFields = new List<string>() { "System.Rev", "System.AuthorizedDate", "System.RevisedDate", "System.ChangedDate", "System.Watermark" };
+                    var selfChangedDicCheck = new Dictionary<string, object>();
+                    foreach (var item in selfChangedDic)
+                    {
+                        if (!nonTriggerFields.Contains(item.Key))
+                            selfChangedDicCheck.Add(item.Key, item.Value);
+                    }
+                    var changedUsedUniqueName = lastRevisionUser.Identity.SubHeader;
+                    if (changedUsedUniqueName == systemUserUniqueName && selfChangedDic.Count > 0 && selfChangedDicCheck.Count == 0) //stop condition
+                    {
+                        _logger.LogDebug("Will not execute script since changed by ado automation system user");
+                    }
+                    else if (selfChangedDic.Count > 0 && selfChangedDicCheck.Count == 0)
+                    {
+                        _logger.LogDebug("Will not execute script since irrelevant fields were updated");
+
+                    }
                     else
                     {
-                        var changedUsedId = userChanged.id;
-                        if (changedUsedId == systemUserID)
-                        {
-                            _logger.LogDebug("Will not execute script since changed by ado automation system user");
-                        }
-                        else
-                        {
-                            var engine = new CSharpScriptEngine(_logger);
-                            err = await engine.ExecuteScripts(context);
-                        }
+                        var engine = new CSharpScriptEngine(_logger);
+                        err = await engine.ExecuteScripts(context);
                     }
+                    //}
                 }
                 else
                 {
