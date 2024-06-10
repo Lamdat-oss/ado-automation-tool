@@ -427,9 +427,6 @@ namespace Lamdat.ADOAutomationTool.Service
         /// <exception cref="ADOAutomationException"></exception>
         public async Task<ADOUser> GetLastChangedByUserForWorkItem(int workItemId)
         {
-            if (workItemId <= 0)
-                throw new ArgumentNullException(nameof(workItemId));
-
             try
             {
                 var url = $"{_collectionURL}/{_project}/_apis/wit/workitems/{workItemId}/revisions?api-version={_apiVersion}";

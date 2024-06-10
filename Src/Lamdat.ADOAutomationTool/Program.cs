@@ -16,7 +16,7 @@ builder.Services.AddLogging(opt =>
  {
      opt.AddConsole(c =>
      {
-         c.TimestampFormat = "[HH:mm:ss] ";
+         c.TimestampFormat = "[dd-MM-yyyy HH:mm:ss] "; 
      });
  });
 

@@ -41,12 +41,16 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                 }
                 string[] scriptFiles = Directory.GetFiles(scriptsDirectory, "*.rule");
 
+                // Order the files by their name
+                string[] orderedScriptFiles = scriptFiles.OrderBy(f => Path.GetFileName(f)).ToArray();
+
+
                 var parallelOptions = new ParallelOptions
                 {
                     //MaxDegreeOfParallelism = Environment.ProcessorCount * 2 // we need to fix for optimistic concurrency
                     MaxDegreeOfParallelism = 1
                 };
-                foreach (var scriptFile in scriptFiles)
+                foreach (var scriptFile in orderedScriptFiles)
                 {                
                 //Parallel.ForEach(scriptFiles, parallelOptions, async scriptFile =>
                 
