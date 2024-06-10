@@ -45,8 +45,22 @@ namespace Lamdat.ADOAutomationTool.Service
                 if (payload.EventType == "workitem.created")
                     payload.Resource.WorkItemId = payload.Resource.Id;
 
-                ADOUser? lastRevisionUser = await adoClient.GetLastChangedByUserForWorkItem(payload.Resource.WorkItemId);
                 WorkItem? witRcv = await adoClient.GetWorkItem(payload.Resource.WorkItemId);
+                ADOUser? lastRevisionUser = null;
+                if (witRcv != null)
+                    try
+                    {
+                        lastRevisionUser = await adoClient.GetLastChangedByUserForWorkItem(payload.Resource.WorkItemId);
+
+                    }
+                    catch (Exception ex) // can be an issue with test connection
+                    {
+
+                        _logger.Log(LogLevel.Debug, $"WebHook handler failed with getting revisions: {ex.Message}");
+
+                    }
+
+
                 Dictionary<string, object> selfChangedDic;
                 if (payload.EventType == "workitem.updated")
                     selfChangedDic = payload.Resource.Fields as Dictionary<string, object>;
@@ -71,7 +85,7 @@ namespace Lamdat.ADOAutomationTool.Service
                         if (!nonTriggerFields.Contains(item.Key))
                             selfChangedDicCheck.Add(item.Key, item.Value);
                     }
-                    var changedUsedUniqueName = lastRevisionUser.Identity.SubHeader;
+                    string changedUsedUniqueName = lastRevisionUser == null ? null : lastRevisionUser.Identity.SubHeader;
                     if (changedUsedUniqueName == systemUserUniqueName && selfChangedDic.Count > 0 && selfChangedDicCheck.Count == 0) //stop condition
                     {
                         _logger.LogDebug("Will not execute script since changed by ado automation system user");

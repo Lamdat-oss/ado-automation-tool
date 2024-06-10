@@ -64,7 +64,16 @@ Alternatively, you can use environment variables to configure the tool. Set the 
 1. Clone this repository to your local machine.
 2. Configure the settings using one of the methods described above.
 3. Deploy the application to your desired hosting environment.
-4. Start the application.
+4. Start the application.    
+5. Configure azure devops service hooks to point to your ado automation tool url
+   In Azure DevOps Project Configuration -> Service hooks. 
+   - Create new service hooks 'work item created', 'workitem updated' with links and without the checkbox 'Links are added or removed' which is used for links changes.
+   - For every defined service hook - set the url of your adoautomationtool server with webhook as the url - https://example.com/WebHook
+   - Set the username - can be any user name or empty
+   - Set your shared key defined in the configuration file or with environment variable (SETTINGS__SHAREDKEY)
+         
+        
+          
 5. Your ADO Automation Tool is now ready to receive webhooks and execute scripts.
 
 
@@ -101,7 +110,7 @@ In your `.rule` files, you'll have access to a C# context to interact with Azure
                             "Name": "Child"
                         },
                         "Rel": "System.LinkTypes.Hierarchy-Forward",
-                        "Url": "https://azuredevops.syncnow.io/NovaCollection/cf5ef574-eece-4cf6-947f-0d1dbb1a1a60/_apis/wit/workItems/5"
+                        "Url": "https://azuredevops.example.com/NovaCollection/cf5ef574-eece-4cf6-947f-0d1dbb1a1a60/_apis/wit/workItems/5"
                     }
                 ],
                  "Added": [
@@ -111,7 +120,7 @@ In your `.rule` files, you'll have access to a C# context to interact with Azure
                             "Name": "Child"
                         },
                         "Rel": "System.LinkTypes.Hierarchy-Reverse",
-                        "Url": "https://azuredevops.syncnow.io/NovaCollection/cf5ef574-eece-4cf6-947f-0d1dbb1a1a60/_apis/wit/workItems/2"
+                        "Url": "https://azuredevops.example.com/NovaCollection/cf5ef574-eece-4cf6-947f-0d1dbb1a1a60/_apis/wit/workItems/2"
                     }
             },
     ```
