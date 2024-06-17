@@ -54,8 +54,6 @@ var app = builder.Build();
 var settings = app.Services.GetRequiredService<IOptions<Settings>>().Value;
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
-
-
 AppDomain.CurrentDomain.UnhandledException += (sender, eventArgs) =>
 {
     var exception = eventArgs.ExceptionObject as Exception;
