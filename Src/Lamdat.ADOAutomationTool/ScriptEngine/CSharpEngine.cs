@@ -113,7 +113,16 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
 
                 };
 
-                _logger.Log(LogLevel.Information, $"Done Executing all scripts");
+                _logger.Log(LogLevel.Debug, $"Done Executing all scripts");
+                if (errCol.Count > 0)
+                {
+                    StringBuilder sb = new StringBuilder();
+                    foreach (var keyval in errCol)
+                    {
+                        sb.AppendLine($"location: {keyval.Key}, error: {keyval.Value}");
+                    }
+                    err = sb.ToString();
+                }
             }
             catch (Exception ex)
             {
@@ -122,15 +131,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                 errCol.GetOrAdd("Error", erro);
             }
 
-            if (errCol.Count > 0)
-            {
-                StringBuilder sb = new StringBuilder();
-                foreach (var keyval in errCol)
-                {
-                    sb.AppendLine($"location: {keyval.Key}, error: {keyval.Value}");
-                }
-                err = sb.ToString();
-            }
+            
             return err;
         }
 

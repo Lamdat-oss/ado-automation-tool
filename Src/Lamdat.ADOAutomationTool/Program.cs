@@ -54,21 +54,6 @@ var app = builder.Build();
 var settings = app.Services.GetRequiredService<IOptions<Settings>>().Value;
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
-app.Use(async (context, next) =>
-{
-    try
-    {
-        await next();
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "An unhandled exception has occurred.");
-        context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-        await context.Response.WriteAsync("An internal server error has occurred.");
-    }
-});
-
-// Register AppDomain UnhandledException event
 AppDomain.CurrentDomain.UnhandledException += (sender, eventArgs) =>
 {
     var exception = eventArgs.ExceptionObject as Exception;
