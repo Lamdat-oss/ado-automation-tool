@@ -428,8 +428,8 @@ namespace Lamdat.ADOAutomationTool.Service
         public async Task<ADOUser> GetLastChangedByUserForWorkItem(int workItemId)
         {
             try
-            {
-                var url = $"{_collectionURL}/{_project}/_apis/wit/workitems/{workItemId}/revisions?api-version={_apiVersion}";
+            {                
+                var url = $"{_collectionURL}/{_project}/_apis/wit/workitems/{workItemId}/revisions?$top=5&$orderby=rev desc&api-version={_apiVersion}";
 
                 var response = await _client.GetAsync(url);
 
