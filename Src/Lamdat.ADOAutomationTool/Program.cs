@@ -76,7 +76,6 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseHttpsRedirection();
 app.MapControllers();
 
 var appSettings = builder.Configuration.GetSection("Settings").Get<Settings>();

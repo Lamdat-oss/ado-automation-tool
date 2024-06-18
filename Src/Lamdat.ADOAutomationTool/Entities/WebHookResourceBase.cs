@@ -2,7 +2,7 @@
 
 namespace Lamdat.ADOAutomationTool.Entities
 {
-    public class WebHookResource
+    public class WebHookResourceBase
     {
         [JsonProperty("id")]
         public int Id { get; set; }
@@ -18,9 +18,7 @@ namespace Lamdat.ADOAutomationTool.Entities
         [JsonProperty("fields")]
         public Dictionary<string, object> Fields { get; set; } = new Dictionary<string, object>();
 
-        [JsonProperty("relations")]
-        public Relations Relations { get; set; } = new Relations();
-
+        
 
     }
 }
