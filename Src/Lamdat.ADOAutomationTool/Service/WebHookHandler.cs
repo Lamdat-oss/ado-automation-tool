@@ -56,6 +56,7 @@ namespace Lamdat.ADOAutomationTool.Service
                 if (payloadBase.EventType == "workitem.created")
                 {
                     payloadBase.Resource.WorkItemId = payloadBase.Resource.Id;
+                    payloadmerged.Resource.WorkItemId = payloadBase.Resource.Id;
                     WebHookInfo<WebHookResourceCreate>? payloadCreate = JsonConvert.DeserializeObject<WebHookInfo<WebHookResourceCreate>>(webHookBody);
                     payloadmerged.Resource.Relations = new Relations();
                     payloadmerged.Resource.Relations.Added = payloadCreate.Resource.Relations;
