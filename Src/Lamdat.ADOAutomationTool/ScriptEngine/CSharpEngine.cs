@@ -69,7 +69,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
 
                             string scriptCode = await File.ReadAllTextAsync(scriptFile);
                             ScriptOptions options = ScriptOptions.Default
-                                .AddReferences(typeof(WebHookInfo).Assembly)
+                                .AddReferences(typeof(WebHookInfo<WebHookResourceUpdate>).Assembly)
                                 .AddImports("Lamdat.ADOAutomationTool.Entities")
                                 .AddImports("Microsoft.Extensions.Logging")
                                 .AddImports("System")
