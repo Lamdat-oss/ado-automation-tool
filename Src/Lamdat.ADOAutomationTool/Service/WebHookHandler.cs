@@ -56,6 +56,7 @@ namespace Lamdat.ADOAutomationTool.Service
                 if (payloadBase.EventType == "workitem.created")
                 {
                     payloadBase.Resource.WorkItemId = payloadBase.Resource.Id;
+                    payloadmerged.Resource.WorkItemId = payloadBase.Resource.Id;
                     WebHookInfo<WebHookResourceCreate>? payloadCreate = JsonConvert.DeserializeObject<WebHookInfo<WebHookResourceCreate>>(webHookBody);
                     payloadmerged.Resource.Relations = new Relations();
                     payloadmerged.Resource.Relations.Added = payloadCreate.Resource.Relations;
@@ -135,8 +136,7 @@ namespace Lamdat.ADOAutomationTool.Service
             }
             catch (Exception ex)
             {
-                _logger.Log(LogLevel.Error, $"WebHook handler failed: {ex.Message}");
-                throw;
+                _logger.Log(LogLevel.Error, $"WebHook handler failed: {ex.Message}");                
             }
             return err;
         }
