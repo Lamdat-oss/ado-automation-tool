@@ -136,7 +136,8 @@ namespace Lamdat.ADOAutomationTool.Service
             }
             catch (Exception ex)
             {
-                _logger.Log(LogLevel.Error, $"WebHook handler failed: {ex.Message}");                
+                _logger.Log(LogLevel.Error, $"WebHook handler failed: {ex.Message}");
+                throw;
             }
             return err;
         }
