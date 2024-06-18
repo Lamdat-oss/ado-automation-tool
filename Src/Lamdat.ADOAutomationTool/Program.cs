@@ -7,19 +7,24 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using System.Net;
+using Serilog.Sinks.File;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
 builder.Services.AddLogging(opt =>
 {
-    opt.AddConsole(c =>
-    {
-        c.TimestampFormat = "[dd-MM-yyyy HH:mm:ss] ";
-    });
-});
+    //opt.AddConsole(c =>
+    //{
+    //    c.TimestampFormat = "[dd-MM-yyyy HH:mm:ss] ";
+    //});
+    opt.ClearProviders();
+
+   });
 
 builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
                     .AddEnvironmentVariables()
@@ -49,6 +54,13 @@ builder.Services.AddCors(options =>
     });
 });
 
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .WriteTo.Console(outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss}]: {Level:u4} | {Message:l}{NewLine}{Exception}")
+    .WriteTo.File($"{AppDomain.CurrentDomain.BaseDirectory}/logs/logfile.log", rollingInterval: RollingInterval.Day)
+    .CreateBootstrapLogger();
+
+builder.Host.UseSerilog();
 var app = builder.Build();
 
 var settings = app.Services.GetRequiredService<IOptions<Settings>>().Value;

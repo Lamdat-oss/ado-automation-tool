@@ -428,47 +428,60 @@ namespace Lamdat.ADOAutomationTool.Service
         public async Task<ADOUser> GetLastChangedByUserForWorkItem(int workItemId)
         {
             try
-            {                
-                var url = $"{_collectionURL}/{_project}/_apis/wit/workitems/{workItemId}/revisions?$top=5&$orderby=rev desc&api-version={_apiVersion}";
+            {
+                var revisions = new List<Revision>();
+                var skip = 0;
+                var pageSize = 100;
 
-                var response = await _client.GetAsync(url);
-
-                if (response.IsSuccessStatusCode)
+                while (true)
                 {
-                    var jsonString = await response.Content.ReadAsStringAsync();
-                    var revisions = JsonConvert.DeserializeObject<RevisionResponse>(jsonString);
+                    var url = $"{_collectionURL}/{_project}/_apis/wit/workitems/{workItemId}/revisions?$top={pageSize}&$skip={skip}&api-version={_apiVersion}";
+                    var response = await _client.GetAsync(url);
 
-                    var lastRevision = revisions.Value.OrderByDescending(r => r.Fields.SystemChangedDate).FirstOrDefault();
-
-                    if (lastRevision != null)
+                    if (response.IsSuccessStatusCode)
                     {
-                        return new ADOUser
+                        var jsonString = await response.Content.ReadAsStringAsync();
+                        var revisionResponse = JsonConvert.DeserializeObject<RevisionResponse>(jsonString);
+                        if (revisionResponse.Value == null || !revisionResponse.Value.Any() || revisionResponse.Value.Count < pageSize)
                         {
-                            Identity = new Identity()
-                            {
-                                DisplayName = lastRevision.Fields.SystemChangedBy.DisplayName,
-                                EntityId = lastRevision.Fields.SystemChangedBy.Id,
-                                SubHeader = lastRevision.Fields.SystemChangedBy.UniqueName
-                            },
+                            if (revisionResponse.Value != null && revisionResponse.Value.Count < pageSize)
+                                revisions.AddRange(revisionResponse.Value);
 
-                        };
+                            break;
+                        }
+
+                        skip += pageSize;
                     }
                     else
                     {
-                        _logger.LogWarning($"No revisions found for work item {workItemId}");
-                        return null;
+                        var errorMessage = $"Failed to retrieve revisions for work item {workItemId}.";
+                        if (response.Content != null)
+                        {
+                            var errorContent = await response.Content.ReadAsStringAsync();
+                            errorMessage += $" Error: {errorContent}";
+                        }
+                        _logger.LogError(errorMessage);
+                        throw new ADOAutomationException(errorMessage);
                     }
+                }
+
+                var lastRevision = revisions.OrderByDescending(r => r.Fields.SystemChangedDate).FirstOrDefault();
+                if (lastRevision != null)
+                {
+                    return new ADOUser
+                    {
+                        Identity = new Identity
+                        {
+                            DisplayName = lastRevision.Fields.SystemChangedBy.DisplayName,
+                            EntityId = lastRevision.Fields.SystemChangedBy.Id,
+                            SubHeader = lastRevision.Fields.SystemChangedBy.UniqueName
+                        }
+                    };
                 }
                 else
                 {
-                    var errorMessage = $"Failed to retrieve revisions for work item {workItemId}.";
-                    if (response.Content != null)
-                    {
-                        var errorContent = await response.Content.ReadAsStringAsync();
-                        errorMessage += $" Error: {errorContent}";
-                    }
-                    _logger.LogError(errorMessage);
-                    throw new ADOAutomationException(errorMessage);
+                    _logger.LogWarning($"No revisions found for work item {workItemId}");
+                    return null;
                 }
             }
             catch (Exception ex)
