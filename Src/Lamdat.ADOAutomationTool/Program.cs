@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using System.Net;
 using Serilog.Sinks.File;
 using Serilog;
+using Lamdat.ADOAutomationTool.ScriptEngine;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,7 +25,7 @@ builder.Services.AddLogging(opt =>
     //});
     opt.ClearProviders();
 
-   });
+});
 
 builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
                     .AddEnvironmentVariables()
@@ -60,8 +61,13 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.File($"{AppDomain.CurrentDomain.BaseDirectory}/logs/logfile.log", rollingInterval: RollingInterval.Day)
     .CreateBootstrapLogger();
 
+
+
+builder.Services.AddSingleton<CSharpScriptEngine>(c => new CSharpScriptEngine(Log.Logger));
+
 builder.Host.UseSerilog();
 var app = builder.Build();
+
 
 var settings = app.Services.GetRequiredService<IOptions<Settings>>().Value;
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
@@ -113,7 +119,9 @@ if (string.IsNullOrWhiteSpace(settings.PAT))
 if (string.IsNullOrWhiteSpace(settings.SharedKey))
     logger.LogWarning("Shared Key not set in configuration");
 
-var webHandler = new WebHookHandler(logger, settings);
+var csScriptEngine = app.Services.GetRequiredService<CSharpScriptEngine>();
+
+var webHandler = new WebHookHandler(csScriptEngine, logger, settings);
 webHandler.Init();
 
 app.Run();

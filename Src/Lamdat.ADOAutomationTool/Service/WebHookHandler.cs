@@ -9,10 +9,12 @@ namespace Lamdat.ADOAutomationTool.Service
         private readonly ILogger _logger;
         private readonly Settings _settingsAccessor;
         private static ADOUser SystemUser { get; set; }
+        private readonly CSharpScriptEngine _scriptEngine;
 
-        public WebHookHandler(ILogger logger, Settings settingsAccessor)
+        public WebHookHandler(CSharpScriptEngine scriptEngine, ILogger logger, Settings settingsAccessor)
         {
             _logger = logger;
+            _scriptEngine = scriptEngine;
             _settingsAccessor = settingsAccessor;
         }
 
@@ -25,7 +27,8 @@ namespace Lamdat.ADOAutomationTool.Service
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error: {ex.Message}");
+                _logger.Log(LogLevel.Error, $"WebHook handler failed with getting revisions: {ex.Message}");
+
 
             }
         }
@@ -121,16 +124,16 @@ namespace Lamdat.ADOAutomationTool.Service
 
                     }
                     else
-                    {
-                        var engine = new CSharpScriptEngine(_logger);
-                        err = await engine.ExecuteScripts(context);
+                    {                        
+                        //var engine = new CSharpScriptEngine(_logger);
+                        err = await _scriptEngine.ExecuteScripts(context);
                     }
                     //}
                 }
                 else
                 {
-                    var engine = new CSharpScriptEngine(_logger);
-                    err = await engine.ExecuteScripts(context);
+                    //var engine = new CSharpScriptEngine(_logger);
+                    err = await _scriptEngine.ExecuteScripts(context);
                 }
 
             }
