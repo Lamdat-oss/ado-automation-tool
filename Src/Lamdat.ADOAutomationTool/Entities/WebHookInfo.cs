@@ -2,16 +2,20 @@
 
 namespace Lamdat.ADOAutomationTool.Entities
 {
-    public class WebHookInfo
+    public class WebHookInfo<T>
     {
         [JsonProperty("eventType")]
         public string EventType { get; set; }
 
         [JsonProperty("resource")]
-        public WebHookResource Resource { get; set; }
+        public T Resource { get; set; }
 
-      
-        public string? Project { get { return ResourceContainers?.project?.id?.ToString(); } }
+
+        public string? Project
+        {
+            set { value = ResourceContainers?.project?.id?.ToString(); }
+            get { return ResourceContainers?.project?.id?.ToString(); }
+        }
 
         [JsonProperty("resourceContainers")]
         public dynamic ResourceContainers { get; set; }

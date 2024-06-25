@@ -136,3 +136,6 @@ $RECYCLE.BIN/
 .DS_Store
 
 _NCrunch*
+
+/logs/*.txt
+/Src/Lamdat.ADOAutomationTool/logs

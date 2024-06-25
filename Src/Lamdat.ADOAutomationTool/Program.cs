@@ -7,18 +7,24 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using System.Net;
+using Serilog.Sinks.File;
+using Serilog;
+using Lamdat.ADOAutomationTool.ScriptEngine;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
 builder.Services.AddLogging(opt =>
 {
-    opt.AddConsole(c =>
-    {
-        c.TimestampFormat = "[dd-MM-yyyy HH:mm:ss] ";
-    });
+    //opt.AddConsole(c =>
+    //{
+    //    c.TimestampFormat = "[dd-MM-yyyy HH:mm:ss] ";
+    //});
+    opt.ClearProviders();
+
 });
 
 builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
@@ -49,7 +55,19 @@ builder.Services.AddCors(options =>
     });
 });
 
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .WriteTo.Console(outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss}]: {Level:u4} | {Message:l}{NewLine}{Exception}")
+    .WriteTo.File($"{AppDomain.CurrentDomain.BaseDirectory}/logs/logfile.log", rollingInterval: RollingInterval.Day)
+    .CreateBootstrapLogger();
+
+
+
+builder.Services.AddSingleton<CSharpScriptEngine>(c => new CSharpScriptEngine(Log.Logger));
+
+builder.Host.UseSerilog();
 var app = builder.Build();
+
 
 var settings = app.Services.GetRequiredService<IOptions<Settings>>().Value;
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
@@ -101,7 +119,9 @@ if (string.IsNullOrWhiteSpace(settings.PAT))
 if (string.IsNullOrWhiteSpace(settings.SharedKey))
     logger.LogWarning("Shared Key not set in configuration");
 
-var webHandler = new WebHookHandler(logger, settings);
+var csScriptEngine = app.Services.GetRequiredService<CSharpScriptEngine>();
+
+var webHandler = new WebHookHandler(csScriptEngine, logger, settings);
 webHandler.Init();
 
 app.Run();

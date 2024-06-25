@@ -9,10 +9,12 @@ namespace Lamdat.ADOAutomationTool.Service
         private readonly ILogger _logger;
         private readonly Settings _settingsAccessor;
         private static ADOUser SystemUser { get; set; }
+        private readonly CSharpScriptEngine _scriptEngine;
 
-        public WebHookHandler(ILogger logger, Settings settingsAccessor)
+        public WebHookHandler(CSharpScriptEngine scriptEngine, ILogger logger, Settings settingsAccessor)
         {
             _logger = logger;
+            _scriptEngine = scriptEngine;
             _settingsAccessor = settingsAccessor;
         }
 
@@ -25,7 +27,8 @@ namespace Lamdat.ADOAutomationTool.Service
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error: {ex.Message}");
+                _logger.Log(LogLevel.Error, $"WebHook handler failed with getting revisions: {ex.Message}");
+
 
             }
         }
@@ -39,18 +42,43 @@ namespace Lamdat.ADOAutomationTool.Service
             string err = null;
             try
             {
-                WebHookInfo? payload = JsonConvert.DeserializeObject<WebHookInfo>(webHookBody);
+                WebHookInfo<WebHookResourceBase>? payloadBase = JsonConvert.DeserializeObject<WebHookInfo<WebHookResourceBase>>(webHookBody);
+                WebHookInfo<WebHookResourceUpdate> payloadmerged = new WebHookInfo<WebHookResourceUpdate>();
+                payloadmerged.Project = payloadBase.Project;
+                payloadmerged.ResourceContainers = payloadBase.ResourceContainers;
+                payloadmerged.EventType = payloadBase.EventType;
+                payloadmerged.ResourceContainers = payloadBase.ResourceContainers;
+                payloadmerged.Resource = new WebHookResourceUpdate();
+                payloadmerged.Resource.Id = payloadBase.Resource.Id;
+                payloadmerged.Resource.WorkItemId = payloadBase.Resource.WorkItemId;
+                payloadmerged.Resource.Revision = payloadBase.Resource.Revision;
+                payloadmerged.Resource.Fields = payloadBase.Resource.Fields;
 
-                var adoClient = new AzureDevOpsClient(_logger, _settingsAccessor.CollectionURL, payload.Project, _settingsAccessor.PAT, _settingsAccessor.BypassRules, _settingsAccessor.NotValidCertificates);
-                if (payload.EventType == "workitem.created")
-                    payload.Resource.WorkItemId = payload.Resource.Id;
 
-                WorkItem? witRcv = await adoClient.GetWorkItem(payload.Resource.WorkItemId);
+                var adoClient = new AzureDevOpsClient(_logger, _settingsAccessor.CollectionURL, payloadBase.Project, _settingsAccessor.PAT, _settingsAccessor.BypassRules, _settingsAccessor.NotValidCertificates);
+                if (payloadBase.EventType == "workitem.created")
+                {
+                    payloadBase.Resource.WorkItemId = payloadBase.Resource.Id;
+                    payloadmerged.Resource.WorkItemId = payloadBase.Resource.Id;
+                    WebHookInfo<WebHookResourceCreate>? payloadCreate = JsonConvert.DeserializeObject<WebHookInfo<WebHookResourceCreate>>(webHookBody);
+                    payloadmerged.Resource.Relations = new Relations();
+                    payloadmerged.Resource.Relations.Added = payloadCreate.Resource.Relations;
+
+                }
+                else if (payloadBase.EventType == "workitem.updated")
+                {
+                    WebHookInfo<WebHookResourceUpdate>? payloadUpdated = JsonConvert.DeserializeObject<WebHookInfo<WebHookResourceUpdate>>(webHookBody);
+                    payloadmerged.Resource.Relations = payloadUpdated.Resource.Relations;
+                }
+
+
+
+                WorkItem? witRcv = await adoClient.GetWorkItem(payloadmerged.Resource.WorkItemId);
                 ADOUser? lastRevisionUser = null;
                 if (witRcv != null)
                     try
                     {
-                        lastRevisionUser = await adoClient.GetLastChangedByUserForWorkItem(payload.Resource.WorkItemId);
+                        lastRevisionUser = await adoClient.GetLastChangedByUserForWorkItem(payloadmerged.Resource.WorkItemId);
 
                     }
                     catch (Exception ex) // can be an issue with test connection
@@ -62,14 +90,14 @@ namespace Lamdat.ADOAutomationTool.Service
 
 
                 Dictionary<string, object> selfChangedDic;
-                if (payload.EventType == "workitem.updated")
-                    selfChangedDic = payload.Resource.Fields as Dictionary<string, object>;
+                if (payloadBase.EventType == "workitem.updated")
+                    selfChangedDic = payloadmerged.Resource.Fields as Dictionary<string, object>;
                 else
                     selfChangedDic = new Dictionary<string, object>();
 
-                var context = new Context(webHookResource: payload.Resource, selfChanges: selfChangedDic, relationChanges: payload.Resource.Relations, workitem: witRcv, project: payload.Project, eventType: payload.EventType, logger: _logger, client: adoClient);
+                var context = new Context(webHookResource: payloadmerged.Resource, selfChanges: selfChangedDic, relationChanges: payloadmerged.Resource.Relations, workitem: witRcv, project: payloadmerged.Project, eventType: payloadmerged.EventType, logger: _logger, client: adoClient);
 
-                if (payload.EventType == "workitem.updated")
+                if (payloadBase.EventType == "workitem.updated")
                 {
                     var systemUserUniqueName = SystemUser.Identity.SubHeader;
                     //dynamic? userChanged = null;
@@ -96,16 +124,16 @@ namespace Lamdat.ADOAutomationTool.Service
 
                     }
                     else
-                    {
-                        var engine = new CSharpScriptEngine(_logger);
-                        err = await engine.ExecuteScripts(context);
+                    {                        
+                        //var engine = new CSharpScriptEngine(_logger);
+                        err = await _scriptEngine.ExecuteScripts(context);
                     }
                     //}
                 }
                 else
                 {
-                    var engine = new CSharpScriptEngine(_logger);
-                    err = await engine.ExecuteScripts(context);
+                    //var engine = new CSharpScriptEngine(_logger);
+                    err = await _scriptEngine.ExecuteScripts(context);
                 }
 
             }
