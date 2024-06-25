@@ -486,7 +486,7 @@ namespace Lamdat.ADOAutomationTool.Service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex.Message);
+                _logger.LogDebug($"Failed to retrieve revisions for work item {workItemId}, the error was : {ex.Message}");
                 throw new ADOAutomationException($"Failed to retrieve revisions for work item {workItemId}, the error was : {ex.Message}");
             }
         }
