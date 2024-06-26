@@ -17,15 +17,13 @@ namespace Lamdat.ADOAutomationTool.Controllers
     {
 
         private readonly ILogger<WebHookController> _logger;
-        private readonly Settings _settingsAccessor;
-        private readonly CSharpScriptEngine _scriptEngine;
+        private IWebHookHandlerService _handlerService;
 
 
-        public WebHookController(CSharpScriptEngine scriptEngine, IOptions<Settings> settingsAccessor, ILogger<WebHookController> logger)
+        public WebHookController(ILogger<WebHookController> logger, IWebHookHandlerService handlerService)
         {
             _logger = logger;
-            _scriptEngine = scriptEngine;
-            _settingsAccessor = settingsAccessor.Value;
+            _handlerService = handlerService;
         }
 
 
@@ -44,7 +42,8 @@ namespace Lamdat.ADOAutomationTool.Controllers
                         return BadRequest();
                     }
 
-                    var err = await new WebHookHandler(_scriptEngine, _logger, _settingsAccessor).HandleWebHook(body);
+                    
+                    var err =  await _handlerService.HandleWebHook(body);
 
                     if (err != null)
                         return StatusCode(503);

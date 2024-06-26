@@ -29,4 +29,8 @@
     <Folder Include="Scripts\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\Lamdat.ADOAutomationTool.Context\Lamdat.ADOAutomationTool.Entities.csproj" />
+  </ItemGroup>
+
 </Project>

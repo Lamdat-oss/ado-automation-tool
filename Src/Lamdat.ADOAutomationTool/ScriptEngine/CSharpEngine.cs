@@ -1,4 +1,5 @@
 ﻿using Lamdat.ADOAutomationTool.Entities;
+using Lamdat.ADOAutomationTool.Service;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
@@ -23,7 +24,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
             _logger = logger;
         }
 
-        public async Task<string> ExecuteScripts(Context context)
+        public async Task<string> ExecuteScripts(IContext context)
         {
             var errCol = new ConcurrentDictionary<string, string>();
             string err = null;
@@ -73,9 +74,9 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                                 .AddImports("System.Linq")
                                 .AddImports("System.Threading.Tasks");
 
-                            context.Self = await context.Client.GetWorkItem(context.Self.Id);  // refresh the entity if it was updated before
-
-                            // Use _lock to ensure thread safety when accessing shared resources
+                            context.Self = await context.Client.GetWorkItem(context.Self.Id);
+                                                       
+                            
                             lock (_lock)
                             {
                                 var compiledScript = CSharpScript.Create(scriptCode, options, globalsType: context.GetType());
@@ -98,7 +99,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                         }
                     }
                 }
-
+                                
                 _logger.Debug("Done Executing all scripts");
                 if (errCol.Count > 0)
                 {
@@ -115,7 +116,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
             return err;
         }
 
-        private void LogExecutionAttempt(Context context, string scriptFile, int attempts)
+        private void LogExecutionAttempt(IContext context, string scriptFile, int attempts)
         {
             if (attempts == 1)
                 _logger.Information($"**** Event:'{context.EventType}'; Workitem type:'{context.Self.WorkItemType}',Workitem Id: {context.Self.Id}, executing script {scriptFile} ****");

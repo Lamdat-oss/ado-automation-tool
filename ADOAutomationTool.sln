@@ -20,6 +20,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Lamdat.ADOAutomationTool.Te
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Samples", "Samples", "{48201573-9AD1-444B-941B-03A7226A2819}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lamdat.ADOAutomationTool.Entities", "Lamdat.ADOAutomationTool.Context\Lamdat.ADOAutomationTool.Entities.csproj", "{15E05B62-457A-4780-87FC-57CC4F78C553}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -34,6 +36,10 @@ Global
 		{100C0E5B-D21B-4D3B-9B7C-42C35E97BE63}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{100C0E5B-D21B-4D3B-9B7C-42C35E97BE63}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{100C0E5B-D21B-4D3B-9B7C-42C35E97BE63}.Release|Any CPU.Build.0 = Release|Any CPU
+		{15E05B62-457A-4780-87FC-57CC4F78C553}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{15E05B62-457A-4780-87FC-57CC4F78C553}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{15E05B62-457A-4780-87FC-57CC4F78C553}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{15E05B62-457A-4780-87FC-57CC4F78C553}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -41,6 +47,7 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{301AC8C3-1E2A-4FAC-8A51-AD346D675FA0} = {43A4404E-440E-4187-9EAF-4420B59EECF0}
 		{100C0E5B-D21B-4D3B-9B7C-42C35E97BE63} = {67FCD311-2731-43A5-A43D-D4091836448F}
+		{15E05B62-457A-4780-87FC-57CC4F78C553} = {43A4404E-440E-4187-9EAF-4420B59EECF0}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {2A34B234-3FA7-4787-A16E-DAA26CC898D1}

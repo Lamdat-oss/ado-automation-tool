@@ -10,6 +10,7 @@ using System.Net;
 using Serilog.Sinks.File;
 using Serilog;
 using Lamdat.ADOAutomationTool.ScriptEngine;
+using System;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -46,11 +47,12 @@ builder.Services.Configure<BasicAuthenticationOptions>(options =>
         options.SharedKey = settings?.SharedKey;
 });
 
+var settings = builder.Configuration.GetSection("Settings").Get<Settings>();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigins", cors =>
-    {
-        var settings = builder.Configuration.GetSection("Settings").Get<Settings>();
+    {        
         cors.WithOrigins(settings.AllowedCorsOrigin);
     });
 });
@@ -61,15 +63,17 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.File($"{AppDomain.CurrentDomain.BaseDirectory}/logs/logfile.log", rollingInterval: RollingInterval.Day)
     .CreateBootstrapLogger();
 
-
-
+builder.Services.AddSingleton(Log.Logger);
 builder.Services.AddSingleton<CSharpScriptEngine>(c => new CSharpScriptEngine(Log.Logger));
+builder.Services.AddTransient<IContext, Context>();
+builder.Services.AddTransient<IAzureDevOpsClient, AzureDevOpsClient>(c=> new AzureDevOpsClient(Log.Logger, settings.CollectionURL, settings.PAT, settings.BypassRules, settings.NotValidCertificates));
+builder.Services.AddTransient<IWebHookHandlerService, WebHookHandlerService>();
 
 builder.Host.UseSerilog();
 var app = builder.Build();
 
 
-var settings = app.Services.GetRequiredService<IOptions<Settings>>().Value;
+
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
 AppDomain.CurrentDomain.UnhandledException += (sender, eventArgs) =>
@@ -121,7 +125,7 @@ if (string.IsNullOrWhiteSpace(settings.SharedKey))
 
 var csScriptEngine = app.Services.GetRequiredService<CSharpScriptEngine>();
 
-var webHandler = new WebHookHandler(csScriptEngine, logger, settings);
+var webHandler = app.Services.GetRequiredService<IWebHookHandlerService>();
 webHandler.Init();
 
 app.Run();

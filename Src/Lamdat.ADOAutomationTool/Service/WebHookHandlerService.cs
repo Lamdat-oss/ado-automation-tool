@@ -1,33 +1,37 @@
 ﻿using Lamdat.ADOAutomationTool.Entities;
 using Lamdat.ADOAutomationTool.ScriptEngine;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 
 namespace Lamdat.ADOAutomationTool.Service
 {
-    public class WebHookHandler
+    public class WebHookHandlerService : IWebHookHandlerService
     {
-        private readonly ILogger _logger;
-        private readonly Settings _settingsAccessor;
+        private readonly Serilog.ILogger _logger;
+        private readonly Settings _setting;
         private static ADOUser SystemUser { get; set; }
         private readonly CSharpScriptEngine _scriptEngine;
+        private IContext _context;
+        private IAzureDevOpsClient _client;
 
-        public WebHookHandler(CSharpScriptEngine scriptEngine, ILogger logger, Settings settingsAccessor)
+        public WebHookHandlerService(CSharpScriptEngine scriptEngine, Serilog.ILogger logger, IContext context, IOptions<Settings> settingsAccessor, IAzureDevOpsClient client)
         {
             _logger = logger;
             _scriptEngine = scriptEngine;
-            _settingsAccessor = settingsAccessor;
+            _setting = settingsAccessor.Value;
+            _context = context;
+            _client = client;
         }
 
         public async Task Init()
         {
             try
             {
-                var adoClient = new AzureDevOpsClient(_logger, _settingsAccessor.CollectionURL, string.Empty, _settingsAccessor.PAT, _settingsAccessor.BypassRules, _settingsAccessor.NotValidCertificates);
-                WebHookHandler.SystemUser = await adoClient.WhoAmI();
+                WebHookHandlerService.SystemUser = await _client.WhoAmI();
             }
             catch (Exception ex)
             {
-                _logger.Log(LogLevel.Error, $"WebHook handler failed with getting revisions: {ex.Message}");
+                _logger.Error($"WebHook handler failed with getting revisions: {ex.Message}");
 
 
             }
@@ -55,7 +59,7 @@ namespace Lamdat.ADOAutomationTool.Service
                 payloadmerged.Resource.Fields = payloadBase.Resource.Fields;
 
 
-                var adoClient = new AzureDevOpsClient(_logger, _settingsAccessor.CollectionURL, payloadBase.Project, _settingsAccessor.PAT, _settingsAccessor.BypassRules, _settingsAccessor.NotValidCertificates);
+                //payloadBase.Project,
                 if (payloadBase.EventType == "workitem.created")
                 {
                     payloadBase.Resource.WorkItemId = payloadBase.Resource.Id;
@@ -73,18 +77,18 @@ namespace Lamdat.ADOAutomationTool.Service
 
 
 
-                WorkItem? witRcv = await adoClient.GetWorkItem(payloadmerged.Resource.WorkItemId);
+                WorkItem? witRcv = await _client.GetWorkItem(payloadmerged.Resource.WorkItemId);
                 ADOUser? lastRevisionUser = null;
                 if (witRcv != null)
                     try
                     {
-                        lastRevisionUser = await adoClient.GetLastChangedByUserForWorkItem(payloadmerged.Resource.WorkItemId);
+                        lastRevisionUser = await _client.GetLastChangedByUserForWorkItem(payloadmerged.Resource.WorkItemId);
 
                     }
                     catch (Exception ex) // can be an issue with test connection
                     {
 
-                        _logger.Log(LogLevel.Debug, $"WebHook handler failed with getting revisions: {ex.Message}");
+                        _logger.Debug($"WebHook handler failed with getting revisions: {ex.Message}");
 
                     }
 
@@ -95,7 +99,14 @@ namespace Lamdat.ADOAutomationTool.Service
                 else
                     selfChangedDic = new Dictionary<string, object>();
 
-                var context = new Context(webHookResource: payloadmerged.Resource, selfChanges: selfChangedDic, relationChanges: payloadmerged.Resource.Relations, workitem: witRcv, project: payloadmerged.Project, eventType: payloadmerged.EventType, logger: _logger, client: adoClient);
+                _context.Self = witRcv;
+                _context.SelfChanges = selfChangedDic;
+                _context.RelationChanges = payloadmerged.Resource.Relations;
+                _context.Project = payloadmerged.Project;
+                _context.SetProject(payloadmerged.Project);
+                _context.EventType = payloadmerged.EventType;
+
+                //var context = new Context(webHookResource: payloadmerged.Resource, selfChanges: selfChangedDic, relationChanges: payloadmerged.Resource.Relations, workitem: witRcv, project: payloadmerged.Project, eventType: payloadmerged.EventType);
 
                 if (payloadBase.EventType == "workitem.updated")
                 {
@@ -116,30 +127,30 @@ namespace Lamdat.ADOAutomationTool.Service
                     string changedUsedUniqueName = lastRevisionUser == null ? null : lastRevisionUser.Identity.SubHeader;
                     if (changedUsedUniqueName == systemUserUniqueName && selfChangedDic.Count > 0 && selfChangedDicCheck.Count == 0) //stop condition
                     {
-                        _logger.LogDebug("Will not execute script since changed by ado automation system user");
+                        _logger.Debug("Will not execute script since changed by ado automation system user");
                     }
                     else if (selfChangedDic.Count > 0 && selfChangedDicCheck.Count == 0)
                     {
-                        _logger.LogDebug("Will not execute script since irrelevant fields were updated");
+                        _logger.Debug("Will not execute script since irrelevant fields were updated");
 
                     }
                     else
-                    {                        
+                    {
                         //var engine = new CSharpScriptEngine(_logger);
-                        err = await _scriptEngine.ExecuteScripts(context);
+                        err = await _scriptEngine.ExecuteScripts(_context);
                     }
                     //}
                 }
                 else
                 {
                     //var engine = new CSharpScriptEngine(_logger);
-                    err = await _scriptEngine.ExecuteScripts(context);
+                    err = await _scriptEngine.ExecuteScripts(_context);
                 }
 
             }
             catch (Exception ex)
             {
-                _logger.Log(LogLevel.Error, $"WebHook handler failed: {ex.Message}");
+                _logger.Error($"WebHook handler failed: {ex.Message}");
                 throw;
             }
             return err;
