@@ -6,7 +6,8 @@ COPY Src/Lamdat.ADOAutomationTool/Lamdat.ADOAutomationTool.csproj ./
 COPY Src/Lamdat.ADOAutomationTool.Entities/Lamdat.ADOAutomationTool.Entities.csproj ./   
 
 
-RUN dotnet restore ADOAutomationTool.sln
+RUN dotnet restore Src/Lamdat.ADOAutomationTool/Lamdat.ADOAutomationTool.csproj
+RUN dotnet restore Src/Lamdat.ADOAutomationTool.Entities/Lamdat.ADOAutomationTool.Entities.csproj
 
 COPY Src/Lamdat.ADOAutomationTool/ ./   
 
