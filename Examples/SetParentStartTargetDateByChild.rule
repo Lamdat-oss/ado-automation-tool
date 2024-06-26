@@ -6,13 +6,13 @@ if(Self.WorkItemType=="Feature")
 {
 	if(RelationChanges.Removed!=null && RelationChanges.Removed.Any(c=>c.Attributes.Name=="Child"))
 	{
-		Logger.Log(LogLevel.Information, $"Feature - Child Removed, dates will be recalculated");	
+		Logger.Information($"Feature - Child Removed, dates will be recalculated");	
 		needsUpdate = true;
 		parentWit=Self;
 	}
 	if(RelationChanges.Added!=null && RelationChanges.Added.Any(c=>c.Attributes.Name=="Child"))
 	{
-		Logger.Log(LogLevel.Information, $"Feature - Child Added, dates will be recalculated");	
+		Logger.Information($"Feature - Child Added, dates will be recalculated");	
 		needsUpdate = true;
 		parentWit=Self;
 	}	
@@ -29,19 +29,19 @@ else
 	{  
 		parentWit = await Client.GetWorkItem(Self.Parent.RelatedWorkItemId);
 		if(parentWit == null){
-			Logger.Log(LogLevel.Information, $"Nothing will be done since no parent was found for Work Item Id: {Self.Id}, Title: '{Self.Title}, WorkItemType:  {Self.WorkItemType}");
+			Logger.Information($"Nothing will be done since no parent was found for Work Item Id: {Self.Id}, Title: '{Self.Title}, WorkItemType:  {Self.WorkItemType}");
 			return;
 		}
 	}
 	else
 	{
-	   Logger.Log(LogLevel.Information, $"Nothing will be done since no parent was found for Work Item Id: {Self.Id}, Title: '{Self.Title}, WorkItemType:  {Self.WorkItemType}");
+	   Logger.Information($"Nothing will be done since no parent was found for Work Item Id: {Self.Id}, Title: '{Self.Title}, WorkItemType:  {Self.WorkItemType}");
 	   return;
 	}
 }
 
 if(needsUpdate){
-	Logger.Log(LogLevel.Information, $"Received event type: {EventType},Work Item Id: {Self.Id}, Title: '{Self.Title}, WorkItemType:  {Self.WorkItemType}");
+	Logger.Information($"Received event type: {EventType},Work Item Id: {Self.Id}, Title: '{Self.Title}, WorkItemType:  {Self.WorkItemType}");
 	await setParentIterationByChildren(parentWit);
 }
      
@@ -54,7 +54,7 @@ async Task setParentIterationByChildren(WorkItem parentWit){
 	//   parentStartDate=DateTime.Parse(parentWit.Fields["Microsoft.VSTS.Scheduling.StartDate"]?.ToString());
 	//if(parentWit.Fields.ContainsKey("Microsoft.VSTS.Scheduling.TargetDate"))
 	//   parentTargetDate=DateTime.Parse(parentWit.Fields["Microsoft.VSTS.Scheduling.TargetDate"]?.ToString());
-	//Logger.Log(LogLevel.Information, $"Work Item Parent found ID: {parentWit.Id},  Title: {parentWit.Title}, StartDate: {parentStartDate}, Target Date: {parentTargetDate}");
+	//Logger.Information($"Work Item Parent found ID: {parentWit.Id},  Title: {parentWit.Title}, StartDate: {parentStartDate}, Target Date: {parentTargetDate}");
 	
 	DateTime? minStartDateFound=null;
 	DateTime? maxTargetDateFound=null;
@@ -64,7 +64,7 @@ async Task setParentIterationByChildren(WorkItem parentWit){
 		if(childWit!=null)
 		{
 			  var iteration=childWit.Fields["System.IterationPath"] as String;
-			  Logger.Log(LogLevel.Debug, $"WorkItem with id '{childWit.Id}' Iteration is '{iteration}'");
+			  Logger.Debug($"WorkItem with id '{childWit.Id}' Iteration is '{iteration}'");
 			  var iterDetails=await Client.GetTeamsIterationDetailsByName("GMP Team",iteration);
 			  if(iterDetails==null)
 				continue;
@@ -75,7 +75,7 @@ async Task setParentIterationByChildren(WorkItem parentWit){
 
 			  if(minStartDateFound==null || minStartDateFound>startDate){                
 				 minStartDateFound=startDate;
-				 Logger.Log(LogLevel.Debug,$"Parent Start Date will be replaced to {startDate}");
+				 Logger.Debug($"Parent Start Date will be replaced to {startDate}");
 				 string formattedStartDate = startDate?.ToString("yyyy-MM-ddTHH:mm:ssZ");
 				 if(parentWit.Fields.ContainsKey("Microsoft.VSTS.Scheduling.StartDate"))
 					parentWit.Fields["Microsoft.VSTS.Scheduling.StartDate"]=formattedStartDate;
@@ -86,7 +86,7 @@ async Task setParentIterationByChildren(WorkItem parentWit){
 
 			 if(maxTargetDateFound==null || maxTargetDateFound<targetDate){
 				maxTargetDateFound=targetDate;
-				Logger.Log(LogLevel.Debug,$"Parent Target Date will be replaced to {targetDate}");
+				Logger.Debug($"Parent Target Date will be replaced to {targetDate}");
 				string formattedTargetDate = targetDate?.ToString("yyyy-MM-ddTHH:mm:ssZ");
 				if(parentWit.Fields.ContainsKey("Microsoft.VSTS.Scheduling.TargetDate"))
 				   parentWit.Fields["Microsoft.VSTS.Scheduling.TargetDate"]=formattedTargetDate;                    
@@ -100,7 +100,7 @@ async Task setParentIterationByChildren(WorkItem parentWit){
 				  
 	if(toSave==true)  {
 		 await Client.SaveWorkItem(parentWit);
-		 Logger.Log(LogLevel.Information,$"Parent work item '{parentWit.Id}' saved");
+		 Logger.Information($"Parent work item '{parentWit.Id}' saved");
 	}
 }
 

@@ -8,19 +8,19 @@ using Microsoft.Extensions.Logging;
 
 namespace Lamdat.ADOAutomationTool.Service
 {
-    public class AzureDevOpsClient
+    public class AzureDevOpsClient : IAzureDevOpsClient
     {
         private readonly string _collectionURL;
         private readonly string _personalAccessToken;
-        private readonly string _project;
         private readonly HttpClient _client;
         private readonly string _apiVersion = "6.0";
-        private readonly ILogger _logger;
+        private readonly Serilog.ILogger _logger;
         private readonly bool _bypassRules;
         private static readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
+        public string Project { get; set; }
 
 
-        public AzureDevOpsClient(ILogger logger, string organizationUrl, string project, string personalAccessToken, bool bypassRules, bool notValidCerts)
+        public AzureDevOpsClient(Serilog.ILogger logger, string organizationUrl, string personalAccessToken, bool bypassRules, bool notValidCerts)
         {
             List<string> errors = new List<string>();
 
@@ -45,7 +45,6 @@ namespace Lamdat.ADOAutomationTool.Service
 
             _collectionURL = organizationUrl;
             _personalAccessToken = personalAccessToken;
-            _project = project;
             _bypassRules = bypassRules;
             _client = new HttpClient(handler);
 
@@ -64,12 +63,12 @@ namespace Lamdat.ADOAutomationTool.Service
         /// <returns></returns>
         public async Task<WorkItem> GetWorkItem(int workItemId)
         {
-            if (_project == "be9b3917-87e6-42a4-a549-2bc06a7a878f") // ADO Test 
+            if (Project == "be9b3917-87e6-42a4-a549-2bc06a7a878f") // ADO Test 
                 return new WorkItem() { Fields = new Dictionary<string, object>(), Id = 0 };
 
             try
             {
-                var url = $"{_collectionURL}/{_project}/_apis/";
+                var url = $"{_collectionURL}/{Project}/_apis/";
 
                 var response = await _client.GetAsync($"{url}wit/workitems/{workItemId}?api-version={_apiVersion}&$expand=All");
 
@@ -118,13 +117,13 @@ namespace Lamdat.ADOAutomationTool.Service
                         var errorContent = await response.Content.ReadAsStringAsync();
                         errorMessage += $" Error: {errorContent}";
                     }
-                    _logger.LogError(errorMessage);
+                    _logger.Error(errorMessage);
                     throw new ADOAutomationException(errorMessage);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex.Message);
+                _logger.Error(ex.Message);
                 throw new ADOAutomationException($"Failed to retreive work item, the error was : {ex.Message}");
             }
         }
@@ -152,15 +151,15 @@ namespace Lamdat.ADOAutomationTool.Service
                         var errorContent = await response.Content.ReadAsStringAsync();
                         errorMessage += $" Error: {errorContent}";
                     }
-                    _logger.LogError(errorMessage);
+                    _logger.Error(errorMessage);
                     throw new ADOAutomationException(errorMessage);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex.Message);
+                _logger.Error(ex.Message);
                 if (ex.InnerException != null)
-                    _logger.LogError(ex.InnerException.Message);
+                    _logger.Error(ex.InnerException.Message);
 
                 throw new ADOAutomationException($"Failed to retreive current user, the error was : {ex.Message}");
 
@@ -177,7 +176,7 @@ namespace Lamdat.ADOAutomationTool.Service
             if (newWorkItem == null)
                 throw new ArgumentNullException(nameof(newWorkItem));
 
-            if (_project == "be9b3917-87e6-42a4-a549-2bc06a7a878f") // ADO Test 
+            if (Project == "be9b3917-87e6-42a4-a549-2bc06a7a878f") // ADO Test 
                 return true;
 
             try
@@ -187,7 +186,7 @@ namespace Lamdat.ADOAutomationTool.Service
 
                 if (existingWorkItem == null)
                 {
-                    _logger.LogError($"Work item with ID {newWorkItem.Id} not found.");
+                    _logger.Error($"Work item with ID {newWorkItem.Id} not found.");
                     throw new ADOAutomationException($"Work item with ID {newWorkItem.Id} not found.");
                 }
 
@@ -231,7 +230,7 @@ namespace Lamdat.ADOAutomationTool.Service
                 var json = JsonConvert.SerializeObject(patchOperations);
                 var content = new StringContent(json, Encoding.UTF8, "application/json-patch+json");
 
-                var url = $"{_collectionURL}/{_project}/_apis/";
+                var url = $"{_collectionURL}/{Project}/_apis/";
                 var response = await _client.PatchAsync($"{url}/wit/workitems/{newWorkItem.Id}?api-version={_apiVersion}&bypassRules={_bypassRules}", content);
 
                 if (response.IsSuccessStatusCode)
@@ -247,18 +246,18 @@ namespace Lamdat.ADOAutomationTool.Service
                         errorMessage += $" Error: {errorContent}";
                     }
                     if (logErrorOtherwiseWarn)
-                        _logger.LogError(errorMessage);
+                        _logger.Error(errorMessage);
                     else
-                        _logger.LogWarning(errorMessage);
+                        _logger.Warning(errorMessage);
                     throw new ADOAutomationException(errorMessage);
                 }
             }
             catch (Exception ex)
             {
                 if (logErrorOtherwiseWarn)
-                    _logger.LogError($"An error occurred: {ex.Message}");
+                    _logger.Error($"An error occurred: {ex.Message}");
                 else
-                    _logger.LogWarning($"An error occurred: {ex.Message}");
+                    _logger.Warning($"An error occurred: {ex.Message}");
                 throw new ADOAutomationException($"Failed to save work item: {ex.Message}");
             }
         }
@@ -305,13 +304,13 @@ namespace Lamdat.ADOAutomationTool.Service
                         var errorContent = await response.Content.ReadAsStringAsync();
                         errorMessage += $" Error: {errorContent}";
                     }
-                    _logger.LogError(errorMessage);
+                    _logger.Error(errorMessage);
                     throw new ADOAutomationException(errorMessage);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex.Message);
+                _logger.Error(ex.Message);
                 throw new ADOAutomationException($"Failed saving work item relations, the error was : {ex.Message}");
             }
         }
@@ -350,7 +349,7 @@ namespace Lamdat.ADOAutomationTool.Service
 
             try
             {
-                var url = $"{_collectionURL}/{_project}/{teamName}/_apis/work/teamsettings/iterations";
+                var url = $"{_collectionURL}/{Project}/{teamName}/_apis/work/teamsettings/iterations";
                 var response = await _client.GetAsync(url);
 
                 if (response.IsSuccessStatusCode)
@@ -370,13 +369,13 @@ namespace Lamdat.ADOAutomationTool.Service
                         var errorContent = await response.Content.ReadAsStringAsync();
                         errorMessage += $" Error: {errorContent}";
                     }
-                    _logger.LogError(errorMessage);
+                    _logger.Error(errorMessage);
                     throw new ADOAutomationException(errorMessage);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex.Message);
+                _logger.Error(ex.Message);
                 throw new ADOAutomationException($"Failed to retrieve iteration details, the error was : {ex.Message}");
             }
         }
@@ -413,7 +412,7 @@ namespace Lamdat.ADOAutomationTool.Service
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex.Message);
+                _logger.Error(ex.Message);
                 throw new ADOAutomationException($"Failed to retrieve iteration details, the error was : {ex.Message}");
             }
         }
@@ -435,7 +434,7 @@ namespace Lamdat.ADOAutomationTool.Service
 
                 while (true)
                 {
-                    var url = $"{_collectionURL}/{_project}/_apis/wit/workitems/{workItemId}/revisions?$top={pageSize}&$skip={skip}&api-version={_apiVersion}";
+                    var url = $"{_collectionURL}/{Project}/_apis/wit/workitems/{workItemId}/revisions?$top={pageSize}&$skip={skip}&api-version={_apiVersion}";
                     var response = await _client.GetAsync(url);
 
                     if (response.IsSuccessStatusCode)
@@ -460,7 +459,7 @@ namespace Lamdat.ADOAutomationTool.Service
                             var errorContent = await response.Content.ReadAsStringAsync();
                             errorMessage += $" Error: {errorContent}";
                         }
-                        _logger.LogError(errorMessage);
+                        _logger.Error(errorMessage);
                         throw new ADOAutomationException(errorMessage);
                     }
                 }
@@ -480,13 +479,13 @@ namespace Lamdat.ADOAutomationTool.Service
                 }
                 else
                 {
-                    _logger.LogWarning($"No revisions found for work item {workItemId}");
+                    _logger.Warning($"No revisions found for work item {workItemId}");
                     return null;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogDebug($"Failed to retrieve revisions for work item {workItemId}, the error was : {ex.Message}");
+                _logger.Debug($"Failed to retrieve revisions for work item {workItemId}, the error was : {ex.Message}");
                 throw new ADOAutomationException($"Failed to retrieve revisions for work item {workItemId}, the error was : {ex.Message}");
             }
         }

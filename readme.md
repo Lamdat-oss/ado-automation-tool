@@ -1,3 +1,4 @@
+
 # ADO Automation Tool
 
 The **ADO Automation Tool** is a web API designed to listen to webhooks from Azure DevOps. When a webhook is received, it triggers a script defined in the `scripts` folder with the `.rule` file suffix.
@@ -9,14 +10,14 @@ Scripts/rules folder can be mounted into /app/scripts folder
 
 ### TLS configuration
 1.  create pfx for tls using PowerShell
-```$cert = New-SelfSignedCertificate -KeyLength 2048 -KeyAlgorithm RSA -Type SSLServerAuthentication -FriendlyName "adoAutomationTool" -NotAfter 2030-01-01 -Subject "adoautomationtool.example.com")
+```powershell
+$cert = New-SelfSignedCertificate -KeyLength 2048 -KeyAlgorithm RSA -Type SSLServerAuthentication -FriendlyName "adoAutomationTool" -NotAfter 2030-01-01 -Subject "adoautomationtool.example.com")
 $certPass = Read-Host -Prompt "Password" -AsSecureString
 Export-PfxCertificate -FilePath "adoautomation.pfx" -Cert $cert -Password $certPass
 ```
 2. set the path of the pfx file to use in environment variable 'Kestrel__Endpoints__Https__Certificate__Path', command line or the app settings file.
 3. set the password for the pfx in environment variable 'Kestrel__Endpoints__Https__Certificate__Password' command line or the app settings file.
 4. mount the pfx to /app folder
-
 
 ### JSON Configuration
 
@@ -45,7 +46,6 @@ docker run --rm -it  -v ./Examples:/app/scripts   -p 5000:5000/tcp   -e "SETTING
 
 # with https
 docker run -p 5000:5000/tcp  -p 5001:5001 --rm -it  -v ./Examples:/app/scripts -v ./adoautomation.pfx:/app/adoautomation.pfx -e -e ASPNETCORE_HTTPS_PORT=5001 -e Kestrel__Endpoints__Https__Certificate__Password="***" -e Kestrel__Endpoints__Https__Certificate__Path=/app/adoautomation.pfx  -e "SETTINGS__COLLECTIONURL=https://azuredevops.syncnow.io/NovaCollection" -e  "SETTINGS__PAT=****" -e "SETTINGS__BYPASSRULES=true" -e "SETTINGS__SHAREDKEY=***"   adoautomationtool/adoautomationtool:0.1.74
-
 ```
 
 ### Environment Variables
@@ -64,33 +64,29 @@ Alternatively, you can use environment variables to configure the tool. Set the 
 1. Clone this repository to your local machine.
 2. Configure the settings using one of the methods described above.
 3. Deploy the application to your desired hosting environment.
-4. Start the application.    
+4. Start the application.
 5. Configure azure devops service hooks to point to your ado automation tool url
    In Azure DevOps Project Configuration -> Service hooks. 
    - Create new service hooks 'work item created', 'workitem updated' with links and without the checkbox 'Links are added or removed' which is used for links changes.
    - For every defined service hook - set the url of your adoautomationtool server with webhook as the url - https://example.com/WebHook
    - Set the username - can be any user name or empty
    - Set your shared key defined in the configuration file or with environment variable (SETTINGS__SHAREDKEY)
-         
-        
-          
+
 5. Your ADO Automation Tool is now ready to receive webhooks and execute scripts.
-
-
 
 # Rules language
 
 ## Example Rule
 ```csharp
-Logger.Log(LogLevel.Information, $"Received event type: {EventType}, Work Item Id: {Self.Id}, Title: '{Self.Title}, State: {Self.State}, WorkItemType:  {Self.WorkItemType}");
+Logger.Information($"Received event type: {EventType}, Work Item Id: {Self.Id}, Title: '{Self.Title}, State: {Self.State}, WorkItemType:  {Self.WorkItemType}");
 
 Self.Fields["System.Description"] = $"Current Date: {DateTime.Today}";
 if(Self.Parent != null){
     var parentWit = await Client.GetWorkItem(Self.Parent.RelatedWorkItemId);
-    Logger.Log(LogLevel.Information, $"Work Item Parent Title: {parentWit.Title}");
+    Logger.Information($"Work Item Parent Title: {parentWit.Title}");
     if(parentWit != null)
     {
-        Logger.Log(LogLevel.Information, $"Work Item Parent Children Count: {parentWit.Children.Count}");
+        Logger.Information($"Work Item Parent Children Count: {parentWit.Children.Count}");
     }
 }
 ```
@@ -136,16 +132,66 @@ if (selfChanges.Fields.ContainsKey("System.IterationPath"))
     return $"Iteration has changed from '{iterChange.OldValue}' to '{iterChange.NewValue}'";
 }
 
-
 // Accessing work item properties
-Logger.Log(LogLevel.Information, $"Work Item Title: {Self.Title}");
+Logger.Information($"Work Item Title: {Self.Title}");
 
 // Accessing parent work item
 if(Self.Parent != null){
     var parentWit = await Client.GetWorkItem(Self.Parent.RelatedWorkItemId);
-    Logger.Log(LogLevel.Information, $"Parent Work Item Title: {parentWit.Title}");
+    Logger.Information($"Parent Work Item Title: {parentWit.Title}");
 }
 ```
+
+## Logger Methods
+
+The ADO Automation Tool uses Serilog for logging. Here are the available logger methods you can use:
+
+### `Logger.Information`
+
+Logs informational messages. Useful for general information about the application's flow.
+
+```csharp
+Logger.Information("This is an informational message");
+Logger.Information("Received event type: {EventType}, Work Item Id: {WorkItemId}", eventType, workItemId);
+```
+
+### `Logger.Debug`
+
+Logs debug messages. Useful for detailed debugging information.
+
+```csharp
+Logger.Debug("This is a debug message");
+Logger.Debug("Debugging event type: {EventType}", eventType);
+```
+
+### `Logger.Error`
+
+Logs error messages. Useful for logging errors and exceptions.
+
+```csharp
+Logger.Error("This is an error message");
+Logger.Error(ex, "An error occurred while processing event type: {EventType}", eventType);
+```
+
+### `Logger.Warning`
+
+Logs warning messages. Useful for potentially harmful situations.
+
+```csharp
+Logger.Warning("This is a warning message");
+Logger.Warning("Potential issue with event type: {EventType}", eventType);
+```
+
+### `Logger.Fatal`
+
+Logs fatal messages. Useful for critical issues that cause the application to crash.
+
+```csharp
+Logger.Fatal("This is a fatal message");
+Logger.Fatal(ex, "A fatal error occurred with event type: {EventType}", eventType);
+```
+
+These logging methods can be used within your `.rule` files to log different levels of information, helping you to monitor and debug the execution of your scripts effectively.
 
 ## Client Functions
 Your `Client` object provides the following functions:
@@ -166,7 +212,9 @@ The `WorkItem` class represents a work item retrieved from Azure DevOps.
 
 - `Id`: The unique identifier of the work item.
 - `Revision`: The revision number of the work item.
-- `Fields`: A dictionary containing the fields of the work item.
+- `Fields`: A dictionary containing the fields of the work item
+
+.
   - **Description**: Represents the fields and their corresponding values of the work item.
 - `Title`: The title of the work item.
   - **Description**: Represents the title of the work item.
@@ -234,5 +282,4 @@ public async Task<IterationDetails> GetTeamsIterationDetailsByName(string teamNa
 ```
 
 This method retrieves details of a specific iteration for a given team in Azure DevOps.
-
 
