@@ -3,6 +3,8 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build-stage
 WORKDIR /app
 
 COPY Src/Lamdat.ADOAutomationTool/Lamdat.ADOAutomationTool.csproj ./   
+COPY Src/Lamdat.ADOAutomationTool.Entities/Lamdat.ADOAutomationTool.Entities.csproj ./   
+
 
 RUN dotnet restore
 
