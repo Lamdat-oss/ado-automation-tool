@@ -30,7 +30,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Lamdat.ADOAutomationTool.Context\Lamdat.ADOAutomationTool.Entities.csproj" />
+    <ProjectReference Include="..\Lamdat.ADOAutomationTool.Entities\Lamdat.ADOAutomationTool.Entities.csproj" />
   </ItemGroup>
 
 </Project>
