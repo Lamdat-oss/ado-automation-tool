@@ -8,8 +8,10 @@ COPY Src/Lamdat.ADOAutomationTool/Lamdat.ADOAutomationTool.csproj ./Src/Lamdat.A
 COPY Src/Lamdat.ADOAutomationTool.Entities/Lamdat.ADOAutomationTool.Entities.csproj ./Src/Lamdat.ADOAutomationTool.Entities/Lamdat.ADOAutomationTool.Entities.csproj   
 
 
+
 RUN dotnet restore  ./Src/Lamdat.ADOAutomationTool/Lamdat.ADOAutomationTool.csproj 
 RUN dotnet restore  ./Src/Lamdat.ADOAutomationTool.Entities/Lamdat.ADOAutomationTool.Entities.csproj   
+
 
 COPY Src/Lamdat.ADOAutomationTool/ ./Src/Lamdat.ADOAutomationTool   
 COPY Src/Lamdat.ADOAutomationTool.Entities/ ./Src/Lamdat.ADOAutomationTool.Entities
