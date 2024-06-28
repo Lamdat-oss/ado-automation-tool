@@ -98,12 +98,12 @@ namespace Lamdat.ADOAutomationTool.Service
                 else
                     selfChangedDic = new Dictionary<string, object>();
 
-                _context.Self = witRcv;
-                _context.SelfChanges = selfChangedDic;
-                _context.RelationChanges = payloadmerged.Resource.Relations;
-                _context.Project = payloadmerged.Project;
-                _context.SetProject(payloadmerged.Project);
-                _context.EventType = payloadmerged.EventType;
+                _context.Self = CloneHelper.DeepClone(witRcv);
+                _context.SelfChanges = CloneHelper.DeepClone(selfChangedDic);
+                _context.RelationChanges = CloneHelper.DeepClone(payloadmerged.Resource.Relations);
+                _context.Project = CloneHelper.DeepClone(payloadmerged.Project);
+                _context.SetProject(CloneHelper.DeepClone((payloadmerged.Project)));
+                _context.EventType = CloneHelper.DeepClone(payloadmerged.EventType);
 
                 //var context = new Context(webHookResource: payloadmerged.Resource, selfChanges: selfChangedDic, relationChanges: payloadmerged.Resource.Relations, workitem: witRcv, project: payloadmerged.Project, eventType: payloadmerged.EventType);
 
