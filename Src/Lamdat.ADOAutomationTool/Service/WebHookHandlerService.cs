@@ -80,17 +80,16 @@ namespace Lamdat.ADOAutomationTool.Service
                 WorkItem? witRcv = await _client.GetWorkItem(payloadmerged.Resource.WorkItemId);
                 ADOUser? lastRevisionUser = null;
                 if (witRcv != null)
-                    try
+                {
+                    dynamic userChanged;
+                    var userChangedSuccess = witRcv.Fields.TryGetValue("System.ChangedBy", out userChanged);
+                    if (userChangedSuccess == false)
+                        _logger.Warning("Workitem changed user not found, will not run sripts");
+                    else
                     {
-                        lastRevisionUser = await _client.GetLastChangedByUserForWorkItem(payloadmerged.Resource.WorkItemId);
-
+                        lastRevisionUser = new ADOUser() { Identity = new Identity() { SubHeader = userChanged.uniqueName } };
                     }
-                    catch (Exception ex) // can be an issue with test connection
-                    {
-
-                        _logger.Debug($"WebHook handler failed with getting revisions: {ex.Message}");
-
-                    }
+                }
 
 
                 Dictionary<string, object> selfChangedDic;
@@ -117,7 +116,8 @@ namespace Lamdat.ADOAutomationTool.Service
                     //    _logger.LogDebug("No Revisions found");
                     //else
                     //{
-                    var nonTriggerFields = new List<string>() { "System.Rev", "System.AuthorizedDate", "System.RevisedDate", "System.ChangedDate", "System.Watermark" };
+                    var nonTriggerFields = new List<string>() { "System.Rev", "System.AuthorizedDate", "System.RevisedDate",
+                        "System.ChangedDate", "System.Watermark", "System.ChangedBy","System.AuthorizedAs","System.PersonId" };
                     var selfChangedDicCheck = new Dictionary<string, object>();
                     foreach (var item in selfChangedDic)
                     {
