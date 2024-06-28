@@ -7,7 +7,7 @@ namespace Lamdat.ADOAutomationTool.Entities
         string Project { get; set; }
 
         Task<List<IterationDetails>> GetAllTeamIterations(string teamName);
-        Task<ADOUser> GetLastChangedByUserForWorkItem(int workItemId);
+        //Task<ADOUser> GetLastChangedByUserForWorkItem(int workItemId);
         Task<IterationDetails> GetTeamsIterationDetailsByName(string teamName, string iterationName);
         Task<WorkItem> GetWorkItem(int workItemId);
         Task<bool> SaveWorkItem(WorkItem newWorkItem, bool logErrorOtherwiseWarn = false);
