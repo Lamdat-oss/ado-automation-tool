@@ -417,78 +417,78 @@ namespace Lamdat.ADOAutomationTool.Service
             }
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="workItemId"></param>
-        /// <returns></returns>
-        /// <exception cref="ArgumentNullException"></exception>
-        /// <exception cref="ADOAutomationException"></exception>
-        public async Task<ADOUser> GetLastChangedByUserForWorkItem(int workItemId)
-        {
-            try
-            {
-                var revisions = new List<Revision>();
-                var skip = 0;
-                var pageSize = 100;
+        ///// <summary>
+        ///// 
+        ///// </summary>
+        ///// <param name="workItemId"></param>
+        ///// <returns></returns>
+        ///// <exception cref="ArgumentNullException"></exception>
+        ///// <exception cref="ADOAutomationException"></exception>
+        //public async Task<ADOUser> GetLastChangedByUserForWorkItem(int workItemId)
+        //{
+        //    try
+        //    {
+        //        var revisions = new List<Revision>();
+        //        var skip = 0;
+        //        var pageSize = 100;
 
-                while (true)
-                {
-                    var url = $"{_collectionURL}/{Project}/_apis/wit/workitems/{workItemId}/revisions?$top={pageSize}&$skip={skip}&api-version={_apiVersion}";
-                    var response = await _client.GetAsync(url);
+        //        while (true)
+        //        {
+        //            var url = $"{_collectionURL}/{Project}/_apis/wit/workitems/{workItemId}/revisions?$top={pageSize}&$skip={skip}&api-version={_apiVersion}";
+        //            var response = await _client.GetAsync(url);
 
-                    if (response.IsSuccessStatusCode)
-                    {
-                        var jsonString = await response.Content.ReadAsStringAsync();
-                        var revisionResponse = JsonConvert.DeserializeObject<RevisionResponse>(jsonString);
-                        if (revisionResponse.Value == null || !revisionResponse.Value.Any() || revisionResponse.Value.Count < pageSize)
-                        {
-                            if (revisionResponse.Value != null && revisionResponse.Value.Count < pageSize)
-                                revisions.AddRange(revisionResponse.Value);
+        //            if (response.IsSuccessStatusCode)
+        //            {
+        //                var jsonString = await response.Content.ReadAsStringAsync();
+        //                var revisionResponse = JsonConvert.DeserializeObject<RevisionResponse>(jsonString);
+        //                if (revisionResponse.Value == null || !revisionResponse.Value.Any() || revisionResponse.Value.Count < pageSize)
+        //                {
+        //                    if (revisionResponse.Value != null && revisionResponse.Value.Count < pageSize)
+        //                        revisions.AddRange(revisionResponse.Value);
 
-                            break;
-                        }
+        //                    break;
+        //                }
 
-                        skip += pageSize;
-                    }
-                    else
-                    {
-                        var errorMessage = $"Failed to retrieve revisions for work item {workItemId}.";
-                        if (response.Content != null)
-                        {
-                            var errorContent = await response.Content.ReadAsStringAsync();
-                            errorMessage += $" Error: {errorContent}";
-                        }
-                        _logger.Error(errorMessage);
-                        throw new ADOAutomationException(errorMessage);
-                    }
-                }
+        //                skip += pageSize;
+        //            }
+        //            else
+        //            {
+        //                var errorMessage = $"Failed to retrieve revisions for work item {workItemId}.";
+        //                if (response.Content != null)
+        //                {
+        //                    var errorContent = await response.Content.ReadAsStringAsync();
+        //                    errorMessage += $" Error: {errorContent}";
+        //                }
+        //                _logger.Error(errorMessage);
+        //                throw new ADOAutomationException(errorMessage);
+        //            }
+        //        }
 
-                var lastRevision = revisions.OrderByDescending(r => r.Fields.SystemChangedDate).FirstOrDefault();
-                if (lastRevision != null)
-                {
-                    return new ADOUser
-                    {
-                        Identity = new Identity
-                        {
-                            DisplayName = lastRevision.Fields.SystemChangedBy.DisplayName,
-                            EntityId = lastRevision.Fields.SystemChangedBy.Id,
-                            SubHeader = lastRevision.Fields.SystemChangedBy.UniqueName
-                        }
-                    };
-                }
-                else
-                {
-                    _logger.Warning($"No revisions found for work item {workItemId}");
-                    return null;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.Debug($"Failed to retrieve revisions for work item {workItemId}, the error was : {ex.Message}");
-                throw new ADOAutomationException($"Failed to retrieve revisions for work item {workItemId}, the error was : {ex.Message}");
-            }
-        }
+        //        var lastRevision = revisions.OrderByDescending(r => r.Fields.SystemChangedDate).FirstOrDefault();
+        //        if (lastRevision != null)
+        //        {
+        //            return new ADOUser
+        //            {
+        //                Identity = new Identity
+        //                {
+        //                    DisplayName = lastRevision.Fields.SystemChangedBy.DisplayName,
+        //                    EntityId = lastRevision.Fields.SystemChangedBy.Id,
+        //                    SubHeader = lastRevision.Fields.SystemChangedBy.UniqueName
+        //                }
+        //            };
+        //        }
+        //        else
+        //        {
+        //            _logger.Debug($"No revisions found for work item {workItemId}");
+        //            return null;
+        //        }
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _logger.Debug($"Failed to retrieve revisions for work item {workItemId}, the error was : {ex.Message}");
+        //        throw new ADOAutomationException($"Failed to retrieve revisions for work item {workItemId}, the error was : {ex.Message}");
+        //    }
+        //}
     }
 }
 
