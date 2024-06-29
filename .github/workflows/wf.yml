@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        build-number: [0.3]  
+        build-number: [0.4]  
 
     steps:
       - name: Set Build Number
@@ -109,7 +109,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        build-number: [0.3]  
+        build-number: [0.4]  
     
     steps:
       - name: Checkout code

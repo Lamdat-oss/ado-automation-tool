@@ -75,9 +75,11 @@ namespace Lamdat.ADOAutomationTool.Service
                     payloadmerged.Resource.Relations = payloadUpdated.Resource.Relations;
                 }
 
-
-
-                WorkItem? witRcv = await _client.GetWorkItem(payloadmerged.Resource.WorkItemId);
+                WorkItem? witRcv = null;
+                if (payloadmerged.Resource.WorkItemId != 0) //test
+                {
+                    witRcv = await _client.GetWorkItem(payloadmerged.Resource.WorkItemId);
+                }
                 ADOUser? lastRevisionUser = null;
                 if (witRcv != null)
                 {
