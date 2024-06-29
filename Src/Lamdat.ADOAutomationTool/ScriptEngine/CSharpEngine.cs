@@ -1,8 +1,6 @@
 ﻿using Lamdat.ADOAutomationTool.Entities;
 using Lamdat.ADOAutomationTool.Service;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.CodeAnalysis.CSharp.Scripting;
-using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.IO;
@@ -10,6 +8,8 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using csscript;
+using CSScriptLib;
 
 namespace Lamdat.ADOAutomationTool.ScriptEngine
 {
@@ -21,7 +21,10 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
 
         public CSharpScriptEngine(Serilog.ILogger logger)
         {
-            _logger = logger;
+            _logger = logger;           
+
+            CSScript.EvaluatorConfig.Engine = EvaluatorEngine.Roslyn;
+
         }
 
         public async Task<string> ExecuteScripts(IContext context)
@@ -41,11 +44,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                 string[] scriptFiles = Directory.GetFiles(scriptsDirectory, "*.rule");
                 string[] orderedScriptFiles = scriptFiles.OrderBy(f => Path.GetFileName(f)).ToArray();
 
-                //var parallelOptions = new ParallelOptions
-                //{
-                //    MaxDegreeOfParallelism = 1
-                //};
-
+                
                 foreach (var scriptFile in orderedScriptFiles)
                 {
                     var attempts = 1;
@@ -65,34 +64,48 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                             {
                                 scriptCode = await reader.ReadToEndAsync();
                             }
+                             StringBuilder stringBuilder = new StringBuilder();
+                            stringBuilder.AppendLine(@"
+using Lamdat.ADOAutomationTool.Entities;
+using Lamdat.ADOAutomationTool.Service;
+using Serilog;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System;
 
-                            ScriptOptions options = ScriptOptions.Default
-                                .AddReferences(typeof(WebHookInfo<WebHookResourceUpdate>).Assembly)
-                                .AddImports("Lamdat.ADOAutomationTool.Entities")
-                                .AddImports("Microsoft.Extensions.Logging")
-                                .AddImports("System")
-                                .AddImports("System.Linq")
-                                .AddImports("System.Threading.Tasks");
+    public async Task Run(IAzureDevOpsClient Client, string EventType, ILogger Logger, string? Project, Relations RelationChanges, WorkItem Self, Dictionary<string, object> SelfChanges, WebHookResourceUpdate WebHookResource)
+    {");
+                            stringBuilder.AppendLine(scriptCode);
+                            stringBuilder.AppendLine("}");
 
                             context.Self = await context.Client.GetWorkItem(context.Self.Id);
+                            scriptCode = stringBuilder.ToString();
 
 
                             lock (_lock)
                             {
-                                var script = CSharpScript.Create(scriptCode, options, globalsType: context.GetType());
-                                var runner = script.CreateDelegate();
-                                var result= runner(context).Result;
-                                //compiledScript.RunAsync(globals: context).Wait();
+                                var script = CSScript.Evaluator.LoadMethod<IScript>(scriptCode);
+                                //var script = CSharpScript.Create(scriptCode, options, globalsType: context.GetType());
+                                //var runner = script.CreateDelegate();
+                                try
+                                {
+                                    script.Run(context.Client, context.EventType, context.Logger, context.Project, context.RelationChanges, context.Self, context.SelfChanges, context.WebHookResource).Wait();
 
-                                context.Client.SaveWorkItem(context.Self, attempts == MAX_ATTEMPTS).Wait();
+                                    //var result = runner(context).Result;
+                                    //compiledScript.RunAsync(globals: context).Wait();
+
+                                    context.Client.SaveWorkItem(context.Self, attempts == MAX_ATTEMPTS).Wait();
+                                }
+                                finally
+                                {
+                                    script = null;
+                                }
                             }
 
                             succeeded = true;
-                        }
-                        catch (CompilationErrorException ex)
-                        {
-                            HandleScriptError(errCol, scriptFile, attempts, ex, "Script compilation error");
-                            if (attempts == MAX_ATTEMPTS) succeeded = true;
                         }
                         catch (Exception ex)
                         {
@@ -137,3 +150,9 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
         }
     }
 }
+
+public interface IScript
+{
+    Task Run(IAzureDevOpsClient Client, string EventType, Serilog.ILogger Logger, string? Project, Relations RelationChanges, WorkItem Self, Dictionary<string, object> SelfChanges, WebHookResourceUpdate WebHookResource);
+}
+
