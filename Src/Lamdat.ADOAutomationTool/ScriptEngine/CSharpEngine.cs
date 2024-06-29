@@ -75,12 +75,14 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                                 .AddImports("System.Threading.Tasks");
 
                             context.Self = await context.Client.GetWorkItem(context.Self.Id);
-                                                       
-                            
+
+
                             lock (_lock)
                             {
-                                var compiledScript = CSharpScript.Create(scriptCode, options, globalsType: context.GetType());
-                                compiledScript.RunAsync(globals: context).Wait();
+                                var script = CSharpScript.Create(scriptCode, options, globalsType: context.GetType());
+                                var runner = script.CreateDelegate();
+                                var result= runner(context).Result;
+                                //compiledScript.RunAsync(globals: context).Wait();
 
                                 context.Client.SaveWorkItem(context.Self, attempts == MAX_ATTEMPTS).Wait();
                             }
@@ -99,7 +101,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                         }
                     }
                 }
-                                
+
                 _logger.Debug("Done Executing all scripts");
                 if (errCol.Count > 0)
                 {

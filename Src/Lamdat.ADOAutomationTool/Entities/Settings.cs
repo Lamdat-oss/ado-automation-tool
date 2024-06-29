@@ -15,5 +15,7 @@
         public bool NotValidCertificates { get; set; } = false;
 
         public bool EnableAutoHttpsRedirect { get; set; } = true;
+
+        public double MemoryCleanupMinutes { get; set; } = 2;
     }
 }

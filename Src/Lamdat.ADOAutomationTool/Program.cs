@@ -52,7 +52,7 @@ var settings = builder.Configuration.GetSection("Settings").Get<Settings>();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigins", cors =>
-    {        
+    {
         cors.WithOrigins(settings.AllowedCorsOrigin);
     });
 });
@@ -66,15 +66,17 @@ Log.Logger = new LoggerConfiguration()
 builder.Services.AddSingleton(Log.Logger);
 builder.Services.AddSingleton<CSharpScriptEngine>(c => new CSharpScriptEngine(Log.Logger));
 builder.Services.AddTransient<IContext, Context>();
-builder.Services.AddTransient<IAzureDevOpsClient, AzureDevOpsClient>(c=> new AzureDevOpsClient(Log.Logger, settings.CollectionURL, settings.PAT, settings.BypassRules, settings.NotValidCertificates));
+builder.Services.AddTransient<IAzureDevOpsClient, AzureDevOpsClient>(c => new AzureDevOpsClient(Log.Logger, settings.CollectionURL, settings.PAT, settings.BypassRules, settings.NotValidCertificates));
 builder.Services.AddTransient<IWebHookHandlerService, WebHookHandlerService>();
+builder.Services.AddSingleton<IMemoryCleaner>(m => new MemoryCleaner(Log.Logger, settings.MemoryCleanupMinutes));
 
 builder.Host.UseSerilog();
 var app = builder.Build();
 
 
-
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
+var memoryCleaner = app.Services.GetRequiredService<IMemoryCleaner>();
+memoryCleaner.Activate();
 
 AppDomain.CurrentDomain.UnhandledException += (sender, eventArgs) =>
 {
