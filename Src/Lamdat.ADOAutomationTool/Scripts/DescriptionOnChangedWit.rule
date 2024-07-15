@@ -1,10 +1,12 @@
 ﻿
-Logger.Information($"Description Change Scrupt - Received event type: {EventType},Work Item Id: {Self.Id}, Title: '{Self.Title}, State: {Self.State}, WorkItemType:  {Self.WorkItemType}");
+Logger.Information($"Received event type: {EventType},Work Item Id: {Self.Id}, Title: '{Self.Title}, State: {Self.State}, WorkItemType:  {Self.WorkItemType}");
 
 
 Self.Fields["Microsoft.VSTS.Common.DescriptionHtml"] = $"Current Date: {DateTime.Today}";
 if(Self.Parent != null){
     var parentWit = await Client.GetWorkItem(Self.Parent.RelatedWorkItemId);
+	var parentWit1 = await Client.GetWorkItem(Self.Parent.RelatedWorkItemId);
+	var parentWit2 = await Client.GetWorkItem(Self.Parent.RelatedWorkItemId);
     Logger.Information($"Work Item Parent Title: {parentWit.Title}");
     if(parentWit != null)
     {
