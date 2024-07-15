@@ -80,6 +80,14 @@ namespace Lamdat.ADOAutomationTool.Service
                 {
                     witRcv = await _client.GetWorkItem(payloadmerged.Resource.WorkItemId);
                 }
+                else
+                {
+                    witRcv = new WorkItem()
+                    {
+                        Fields = new Dictionary<string, object>(),
+                        Title ="--Test--"
+                    };
+                }
                 ADOUser? lastRevisionUser = null;
                 if (witRcv != null)
                 {
