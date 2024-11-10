@@ -78,15 +78,28 @@ namespace Lamdat.ADOAutomationTool.Service
                 WorkItem? witRcv = null;
                 if (payloadmerged.Resource.WorkItemId != 0) //test
                 {
-                    witRcv = await _client.GetWorkItem(payloadmerged.Resource.WorkItemId);
+                    try
+                    {
+                        witRcv = await _client.GetWorkItem(payloadmerged.Resource.WorkItemId);
+
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"Error getting workitem with id {payloadmerged?.Resource?.WorkItemId} - the error was: {ex.Message}, will not run scripts");
+                        return null; // we want ok if workitem was deleted during run
+
+                    }
+                    if (witRcv == null)
+                        return null; // we want ok if workitem was deleted during run
                 }
                 else
                 {
                     witRcv = new WorkItem()
                     {
                         Fields = new Dictionary<string, object>(),
-                        Title ="--Test--"
+                        Title = "--Test--"
                     };
+                    return null; // we want ok if only test
                 }
                 ADOUser? lastRevisionUser = null;
                 if (witRcv != null)
@@ -94,7 +107,7 @@ namespace Lamdat.ADOAutomationTool.Service
                     dynamic userChanged;
                     var userChangedSuccess = witRcv.Fields.TryGetValue("System.ChangedBy", out userChanged);
                     if (userChangedSuccess == false)
-                        _logger.Warning("Workitem changed user not found, will not run sripts");
+                        _logger.Warning("Workitem changed user not found, will not run scripts");
                     else
                     {
                         lastRevisionUser = new ADOUser() { Identity = new Identity() { SubHeader = userChanged.uniqueName } };
