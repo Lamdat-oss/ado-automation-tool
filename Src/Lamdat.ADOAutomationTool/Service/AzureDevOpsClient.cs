@@ -117,14 +117,14 @@ namespace Lamdat.ADOAutomationTool.Service
                         var errorContent = await response.Content.ReadAsStringAsync();
                         errorMessage += $" Error: {errorContent}";
                     }
-                    _logger.Error(errorMessage);
-                    throw new ADOAutomationException(errorMessage);
+                    _logger.Warning(errorMessage);
+                    return new WorkItem() { Fields = new Dictionary<string, object>(), Id = 0 };
                 }
             }
             catch (Exception ex)
             {
-                _logger.Error(ex.Message);
-                throw new ADOAutomationException($"Failed to retreive work item, the error was : {ex.Message}");
+                _logger.Warning($"Failed to retreive work item, the error was : {ex.Message}");
+                return new WorkItem() { Fields = new Dictionary<string, object>(), Id = 0 };
             }
         }
 
@@ -184,7 +184,7 @@ namespace Lamdat.ADOAutomationTool.Service
 
                 var existingWorkItem = await GetWorkItem(newWorkItem.Id);
 
-                if (existingWorkItem == null)
+                if (existingWorkItem == null || existingWorkItem.Id == 0)
                 {
                     _logger.Error($"Work item with ID {newWorkItem.Id} not found.");
                     throw new ADOAutomationException($"Work item with ID {newWorkItem.Id} not found.");
