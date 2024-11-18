@@ -21,7 +21,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
 
         public CSharpScriptEngine(Serilog.ILogger logger)
         {
-            _logger = logger;           
+            _logger = logger;
 
             CSScript.EvaluatorConfig.Engine = EvaluatorEngine.Roslyn;
 
@@ -43,8 +43,15 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
 
                 string[] scriptFiles = Directory.GetFiles(scriptsDirectory, "*.rule");
                 string[] orderedScriptFiles = scriptFiles.OrderBy(f => Path.GetFileName(f)).ToArray();
-
+                var entityID = context.Self.Id;
+                context.Self = await context.Client.GetWorkItem(context.Self.Id);
+                if (context.Self == null || context.Self.Id == 0)
+                {
+                    _logger.Warning($"Entity with id {entityID} was not found, it may have been deleted");
+                    return null;
+                }                                      
                 
+
                 foreach (var scriptFile in orderedScriptFiles)
                 {
                     var attempts = 1;
@@ -64,7 +71,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                             {
                                 scriptCode = await reader.ReadToEndAsync();
                             }
-                             StringBuilder stringBuilder = new StringBuilder();
+                            StringBuilder stringBuilder = new StringBuilder();
                             stringBuilder.AppendLine(@"
 using Lamdat.ADOAutomationTool.Entities;
 using Lamdat.ADOAutomationTool.Service;
@@ -79,12 +86,10 @@ using System;
     public async Task Run(IAzureDevOpsClient Client, string EventType, ILogger Logger, string? Project, Relations RelationChanges, WorkItem Self, Dictionary<string, object> SelfChanges, WebHookResourceUpdate WebHookResource)
     {");
                             stringBuilder.AppendLine(scriptCode);
-                            stringBuilder.AppendLine("}");
-
-                            context.Self = await context.Client.GetWorkItem(context.Self.Id);
+                            stringBuilder.AppendLine("}");                           
                             scriptCode = stringBuilder.ToString();
 
-
+                          
                             lock (_lock)
                             {
                                 var script = CSScript.Evaluator.LoadMethod<IScript>(scriptCode);
