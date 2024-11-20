@@ -52,15 +52,17 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                     var succeeded = false;
                     while (!succeeded && attempts <= MAX_ATTEMPTS)
                     {
-                        var entityID = context.Self.Id;
-                        context.Self = await context.Client.GetWorkItem(context.Self.Id);
-                        if (context.Self == null || context.Self.Id == 0)
-                        {
-                            _logger.Warning($"Entity with id {entityID} was not found, it may have been deleted");
-                            return null;
-                        }
+                       
                         try
                         {
+                            var entityID = context.Self.Id;
+                            context.Self = await context.Client.GetWorkItem(context.Self.Id);
+                            if (context.Self == null || context.Self.Id == 0)
+                            {
+                                _logger.Warning($"Entity with id {entityID} was not found, it may have been deleted");
+                                succeeded = true;
+                                continue;
+                            }
                             LogExecutionAttempt(context, scriptFile, attempts);
 
                             attempts++;
