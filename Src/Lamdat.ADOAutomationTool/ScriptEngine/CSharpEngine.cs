@@ -43,13 +43,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
 
                 string[] scriptFiles = Directory.GetFiles(scriptsDirectory, "*.rule");
                 string[] orderedScriptFiles = scriptFiles.OrderBy(f => Path.GetFileName(f)).ToArray();
-                var entityID = context.Self.Id;
-                context.Self = await context.Client.GetWorkItem(context.Self.Id);
-                if (context.Self == null || context.Self.Id == 0)
-                {
-                    _logger.Warning($"Entity with id {entityID} was not found, it may have been deleted");
-                    return null;
-                }                                      
+                                             
                 
 
                 foreach (var scriptFile in orderedScriptFiles)
@@ -58,8 +52,17 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                     var succeeded = false;
                     while (!succeeded && attempts <= MAX_ATTEMPTS)
                     {
+                       
                         try
                         {
+                            var entityID = context.Self.Id;
+                            context.Self = await context.Client.GetWorkItem(context.Self.Id);
+                            if (context.Self == null || context.Self.Id == 0)
+                            {
+                                _logger.Warning($"Entity with id {entityID} was not found, it may have been deleted");
+                                succeeded = true;
+                                continue;
+                            }
                             LogExecutionAttempt(context, scriptFile, attempts);
 
                             attempts++;
@@ -97,7 +100,8 @@ using System;
                                 //var runner = script.CreateDelegate();
                                 try
                                 {
-                                    script.Run(context.Client, context.EventType, context.Logger, context.Project, context.RelationChanges, context.Self, context.SelfChanges, context.WebHookResource).Wait();
+                                    script.Run(context.Client, context.EventType, context.Logger, context.Project, context.RelationChanges, context.Self,
+                                        context.SelfChanges, context.WebHookResource).Wait();
 
                                     //var result = runner(context).Result;
                                     //compiledScript.RunAsync(globals: context).Wait();
