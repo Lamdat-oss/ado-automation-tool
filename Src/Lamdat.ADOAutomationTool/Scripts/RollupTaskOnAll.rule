@@ -1,0 +1,378 @@
+if (!string.IsNullOrWhiteSpace(Self.WorkItemType) &&
+    Self.WorkItemType.Equals("Task"))
+{
+    var tag = Self.GetField<string>("System.Tags", "");
+    var featureEpicTitle = "";
+    var category = Self.GetField<string>("Labs.Category");
+            
+    WorkItem parent = Self;
+    while (parent.Parent != null)
+    {
+        parent = await Client.GetWorkItem(parent.Parent.RelatedWorkItemId);
+        if (parent.Id == 0) {
+            Logger.Error($"Nothing will be done since no parent was found while search of top parent work item for Work Item Id: {Self.Id}, Title: '{Self.Title}, WorkItemType:  {Self.WorkItemType}");
+            return;
+        }
+        
+        var environment = "";
+        var pbiType = "";
+        var fType = "";
+        var parentTypeName = parent.WorkItemType;
+        
+        //logger.Log("RollupTaskOnAll--Parent workItemType: {1} ID: {0}", parent.Id, parentTypeName);
+
+        if (parentTypeName == "Bug")
+        {
+            environment = parent.GetField<string>("DavidShield.Environment");            
+        }
+        else if (parentTypeName == "Product Backlog Item") 
+        {
+            pbiType = parent.GetField<string>("Labs.PBIType");
+        }
+        else if (parentTypeName == "Feature") 
+        {
+            fType = parent.GetField<string>("Labs.FeatureType");          
+        }          
+
+        if ((environment == "Production") || (fType == "Data Fix") || (pbiType == "Data Fix"))
+        {
+            if (!tag.Contains("Production Maintenance"))
+            {
+                tag += ";Production Maintenance";
+            }
+        }						
+            
+        if ((new string[] {"Bug", "Product Backlog Item", "Feature", "Glitch", "Epic", "UX UI"}).Contains(parentTypeName))
+        {
+            double devCompletedWork = 0.0;						
+            double completedWork = 0.0;
+            double remainingWork = 0.0;
+            double originalEstimate = 0.0;
+            double generalWork = 0.0;
+            double QACompletedWork = 0.0;
+            double BACompletedWork = 0.0;
+            double totalWork = 0.0;
+
+            var parentChildren = await parent.FollowingLinks(new FollowingLinksPrms
+            {
+                LinkType = "System.LinkTypes.Hierarchy-Forward",
+                WhereTypeIs = "Task",
+                AtMost = 7
+            });
+
+            foreach (var child in parentChildren)
+            {
+                remainingWork += child.GetField<double>("Microsoft.VSTS.Scheduling.RemainingWork", 0d);
+                originalEstimate += child.GetField<double>("Microsoft.VSTS.Scheduling.OriginalEstimate", 0d);
+
+                var childCompletedWork = child.GetField<double>("Microsoft.VSTS.Scheduling.CompletedWork", 0d);
+                
+                var activity = child.GetField<string>("Microsoft.VSTS.Common.Activity");
+                switch (activity)
+                {
+                    case "Triage":
+                    case "Reproduce":
+                    case "Test Case":
+                    case "Testing":
+                    case "Test Cases Approval":                
+                        QACompletedWork += childCompletedWork;
+                        break;
+                    case "UX/UI":
+                    case "Requirements Meeting":
+                    case "Design":
+                        BACompletedWork += childCompletedWork;
+                        break;
+                    case "Code Review":
+                    case "Demo":
+                    case "Data Fix":
+                    case "DevOps":
+                    case "Investigation":
+                    case "Release Upgrade":
+                    case "Admin Configuration":
+                    case "Development":
+                    case "Dev Development":
+                        devCompletedWork += childCompletedWork;
+                        break;
+                    default:
+                        generalWork += childCompletedWork;
+                        break;
+                }
+            }
+
+            totalWork = generalWork + devCompletedWork + QACompletedWork + BACompletedWork;
+            
+            if ((parentTypeName == "Feature") || (parentTypeName == "Epic"))
+            {
+                                                                      
+                if (parentTypeName == "Feature")
+                {
+                    var featureType = parent.GetField<string>("Labs.FeatureType");
+
+                    var isChangeInParentFeature = false;
+                    
+                    DateTime currentDate = DateTime.Now;
+                    if (totalWork > 0 && parent.GetField<DateTime?>("Microsoft.VSTS.Scheduling.StartDate") == null)
+                    {				
+                        parent.SetField("Microsoft.VSTS.Scheduling.StartDate", currentDate); // work started, update start date
+                        isChangeInParentFeature = true;
+                    }
+
+                    var selfExternalState = parent.GetField<string>("Labs.ExternalState"); 
+                    if (selfExternalState != "NeedAcceptanceTesting" && 
+                        totalWork >= 160 &&
+                        featureType == "Task")
+                    {								
+                        parent.SetField("Labs.ExternalState", "NeedAcceptanceTesting"); // Acceptance Testing is required
+                        isChangeInParentFeature = true;
+                    } 
+
+                    double finalRemainingWork = double.Parse(string.Format("{0:###0.00}", remainingWork / 8));
+                    double finalTotalWork = double.Parse(string.Format("{0:###0.00}", totalWork / 8));
+                    double finalDevCompletedWork = double.Parse(string.Format("{0:###0.00}", devCompletedWork / 8));
+                    double finalBaCompletedWork = double.Parse(string.Format("{0:###0.00}", BACompletedWork / 8));
+                    double finalQaCompletedWork = double.Parse(string.Format("{0:###0.00}", QACompletedWork / 8));
+                    
+                    string finalRemainingWorkStr = finalRemainingWork.ToString("0.00");
+                    string finalTotalWorkStr = finalTotalWork.ToString("0.00");
+                    string finalDevCompletedWorkStr = finalDevCompletedWork.ToString("0.00");
+                    string finalBaCompletedWorkStr = finalBaCompletedWork.ToString("0.00");
+                    string finalQaCompletedWorkStr = finalQaCompletedWork.ToString("0.00");
+                    
+                    double parentRemainingWork = parent.GetField<double>("Microsoft.VSTS.Scheduling.RemainingWork", 0d);
+                    double parentTotalWork = parent.GetField<double>("Microsoft.VSTS.Scheduling.CompletedWork", 0d);
+                    double parentDevCompletedWork = parent.GetField<double>("Labs.DevCompletedWork", 0d);
+                    double parentBaCompletedWork = parent.GetField<double>("Labs.BACompletedWork", 0d);
+                    double parentQaCompletedWork = parent.GetField<double>("Labs.QACompletedWork", 0d);
+                    
+                    string parentRemainingWorkStr = parentRemainingWork.ToString("0.00");
+                    string parentTotalWorkStr = parentTotalWork.ToString("0.00");
+                    string parentDevCompletedWorkStr = parentDevCompletedWork.ToString("0.00");
+                    string parentBaCompletedWorkStr = parentBaCompletedWork.ToString("0.00");
+                    string parentQaCompletedWorkStr = parentQaCompletedWork.ToString("0.00");
+
+                    
+                    if ( ! parentRemainingWorkStr.Equals(finalRemainingWorkStr))
+                    {
+                        parent.SetField("Microsoft.VSTS.Scheduling.RemainingWork", finalRemainingWork);
+                        isChangeInParentFeature = true;
+                    }
+                    
+                    if ( ! parentTotalWorkStr.Equals(finalTotalWorkStr))
+                    {
+                        parent.SetField("Microsoft.VSTS.Scheduling.CompletedWork", finalTotalWork);
+                        isChangeInParentFeature = true;
+                    }
+                    
+                    if ( ! parentDevCompletedWorkStr.Equals(finalDevCompletedWorkStr))
+                    {
+                        parent.SetField("Labs.DevCompletedWork", finalDevCompletedWork);
+                        isChangeInParentFeature = true;
+                    } 
+                    
+                    if ( ! parentBaCompletedWorkStr.Equals(finalBaCompletedWorkStr))
+                    {
+                        parent.SetField("Labs.BACompletedWork", finalBaCompletedWork);
+                        isChangeInParentFeature = true;
+                    } 
+                    
+                    if ( ! parentQaCompletedWorkStr.Equals(finalQaCompletedWorkStr))
+                    {
+                        parent.SetField("Labs.QACompletedWork", finalQaCompletedWork);
+                        isChangeInParentFeature = true;
+                    }
+
+                    if (isChangeInParentFeature)
+                    {
+                        await Client.SaveWorkItem(parent, true);
+                    
+                        Logger.Information($"Updated parent work item with ID: {parent.Id}, workItemType: {parent.WorkItemType}. " +
+                            $"Microsoft.VSTS.Scheduling.StartDate = {parent.GetField<string>("Microsoft.VSTS.Scheduling.StartDate")}, " +
+                            $"Labs.ExternalState = {parent.GetField<string>("Labs.ExternalState")}, " +
+                            $"Microsoft.VSTS.Scheduling.RemainingWork = {finalRemainingWork}, Microsoft.VSTS.Scheduling.CompletedWork = {finalTotalWork}, " +
+                            $"Labs.DevCompletedWork = {finalDevCompletedWork}, Labs.BACompletedWork = {finalBaCompletedWork}," +
+                            $"Labs.QACompletedWork = {finalQaCompletedWork}");
+                    }
+                    
+                    featureEpicTitle = parent.GetField<string>("System.Title");
+                    category = parent.GetField<string>("Labs.Category");
+                    
+                }
+                else //Epic
+                {
+                    double finalTotalWork = double.Parse(string.Format("{0:###0.00}", totalWork / 8));
+                    double finalDevCompletedWork = double.Parse(string.Format("{0:###0.00}", devCompletedWork / 8));
+                    
+                    string finalTotalWorkStr = finalTotalWork.ToString("0.00");
+                    string finalDevCompletedWorkStr = finalDevCompletedWork.ToString("0.00");
+                    
+                    double parentTotalWork = parent.GetField<double>("Microsoft.VSTS.Scheduling.CompletedWork", 0d);
+                    double parentDevCompletedWork = parent.GetField<double>("Labs.DevCompletedWork", 0d);
+                    
+                    string parentTotalWorkStr = parentTotalWork.ToString("0.00");
+                    string parentDevCompletedWorkStr = parentDevCompletedWork.ToString("0.00");
+
+                    
+                    var isChangeInParentEpic = false;
+                    
+                    if ( ! parentTotalWorkStr.Equals(finalTotalWorkStr))
+                    {
+                        parent.SetField("Microsoft.VSTS.Scheduling.CompletedWork", finalTotalWork);
+                        isChangeInParentEpic = true;
+                    }
+                    
+                    if ( ! parentDevCompletedWorkStr.Equals(finalDevCompletedWorkStr))
+                    {
+                        parent.SetField("Labs.DevCompletedWork", finalDevCompletedWork);
+                        isChangeInParentEpic = true;
+                    }
+
+
+                    if (isChangeInParentEpic)
+                    {
+                        await Client.SaveWorkItem(parent, true);
+                        Logger.Information($"Updated parent work item with ID: {parent.Id}, workItemType: {parent.WorkItemType}, " +
+                            $"Microsoft.VSTS.Scheduling.CompletedWork = {finalTotalWork}, Labs.DevCompletedWork = {finalDevCompletedWork}");	
+                    }
+        
+                    featureEpicTitle = parent.GetField<string>("System.Title");
+                    category = parent.GetField<string>("Labs.Category");
+                }
+            }
+            else
+            {    
+                if (parentTypeName == "UX UI")
+                {
+                    double finalTotalWork = double.Parse(string.Format("{0:###0.00}", totalWork));
+                    string finalTotalWorkStr = finalTotalWork.ToString("0.00");
+                    
+                    double parentTotalWork = parent.GetField<double>("Microsoft.VSTS.Scheduling.CompletedWork", 0d);
+                    string parentTotalWorkStr = parentTotalWork.ToString("0.00");
+                    
+                    var isChangeInParentUxUi = false;
+                    
+                    if ( ! parentTotalWorkStr.Equals(finalTotalWorkStr))
+                    {
+                        parent.SetField("Microsoft.VSTS.Scheduling.CompletedWork", finalTotalWork);
+                        isChangeInParentUxUi = true;
+                    }
+                    
+                    if (isChangeInParentUxUi)
+                    {
+                        await Client.SaveWorkItem(parent, true);
+                        Logger.Information($"Updated parent work item with ID: {parent.Id}, workItemType: {parent.WorkItemType}, " +
+                            $"Microsoft.VSTS.Scheduling.CompletedWork = {finalTotalWork}");	
+                    }
+                }
+                else
+                {
+                    double finalRemainingWork = double.Parse(string.Format("{0:###0.00}", remainingWork ));
+                    double finalTotalWork = double.Parse(string.Format("{0:###0.00}", totalWork ));
+                    double finalDevCompletedWork = double.Parse(string.Format("{0:###0.00}", devCompletedWork ));
+                    double finalBaCompletedWork = double.Parse(string.Format("{0:###0.00}", BACompletedWork ));
+                    double finalQaCompletedWork = double.Parse(string.Format("{0:###0.00}", QACompletedWork ));
+                    double finalOriginalEstimate = double.Parse(string.Format("{0:###0.00}", originalEstimate));
+                    
+                    string finalRemainingWorkStr = finalRemainingWork.ToString("0.00");
+                    string finalTotalWorkStr = finalTotalWork.ToString("0.00");
+                    string finalDevCompletedWorkStr = finalDevCompletedWork.ToString("0.00");
+                    string finalBaCompletedWorkStr = finalBaCompletedWork.ToString("0.00");
+                    string finalQaCompletedWorkStr = finalQaCompletedWork.ToString("0.00");
+                    string finalOriginalEstimateStr = finalOriginalEstimate.ToString("0.00");
+                    
+                    double parentRemainingWork = parent.GetField<double>("Microsoft.VSTS.Scheduling.RemainingWork", 0d);
+                    double parentTotalWork = parent.GetField<double>("Microsoft.VSTS.Scheduling.CompletedWork", 0d);
+                    double parentDevCompletedWork = parent.GetField<double>("Labs.DevCompletedWork", 0d);
+                    double parentBaCompletedWork = parent.GetField<double>("Labs.BACompletedWork", 0d);
+                    double parentQaCompletedWork = parent.GetField<double>("Labs.QACompletedWork", 0d);
+                    double parentOriginalEstimate = parent.GetField<double>("Microsoft.VSTS.Scheduling.OriginalEstimate", 0d);
+                    
+                    string parentRemainingWorkStr = parentRemainingWork.ToString("0.00");
+                    string parentTotalWorkStr = parentTotalWork.ToString("0.00");
+                    string parentDevCompletedWorkStr = parentDevCompletedWork.ToString("0.00");
+                    string parentBaCompletedWorkStr = parentBaCompletedWork.ToString("0.00");
+                    string parentQaCompletedWorkStr = parentQaCompletedWork.ToString("0.00");
+                    string parentOriginalEstimateStr = parentOriginalEstimate.ToString("0.00");
+                    
+                    
+                    var isChangeInParent = false;
+                    
+                    if ( ! parentRemainingWorkStr.Equals(finalRemainingWorkStr))
+                    {
+                        parent.SetField("Microsoft.VSTS.Scheduling.RemainingWork", finalRemainingWork);
+                        isChangeInParent = true;
+                    }
+                    
+                    if ( ! parentTotalWorkStr.Equals(finalTotalWorkStr))
+                    {
+                        parent.SetField("Microsoft.VSTS.Scheduling.CompletedWork", finalTotalWork);
+                        isChangeInParent = true;
+                    }
+                    
+                    if ( ! parentDevCompletedWorkStr.Equals(finalDevCompletedWorkStr))
+                    {
+                        parent.SetField("Labs.DevCompletedWork", finalDevCompletedWork); 
+                        isChangeInParent = true;
+                    }
+                    
+                    if ( ! parentBaCompletedWorkStr.Equals(finalBaCompletedWorkStr))
+                    {
+                        parent.SetField("Labs.BACompletedWork", finalBaCompletedWork);  
+                        isChangeInParent = true;
+                    }
+                    
+                    if ( ! parentQaCompletedWorkStr.Equals(finalQaCompletedWorkStr))
+                    {
+                        parent.SetField("Labs.QACompletedWork", finalQaCompletedWork);
+                        isChangeInParent = true;
+                    }
+                    
+                    if ( ! parentOriginalEstimateStr.Equals(finalOriginalEstimateStr))
+                    {
+                        parent.SetField("Microsoft.VSTS.Scheduling.OriginalEstimate", finalOriginalEstimate);  
+                        isChangeInParent = true;
+                    }
+                    
+                    if (isChangeInParent)
+                    {
+                        await Client.SaveWorkItem(parent, true);
+                        Logger.Information($"Updated parent work item with ID: {parent.Id}, workItemType: {parent.WorkItemType}. " +
+                            $"Microsoft.VSTS.Scheduling.RemainingWork = {finalRemainingWork}, Microsoft.VSTS.Scheduling.CompletedWork = {finalTotalWork}, " +
+                            $"Labs.DevCompletedWork = {finalDevCompletedWork}, Labs.BACompletedWork = {finalBaCompletedWork}," +
+                            $"Labs.QACompletedWork = {finalQaCompletedWork}, Microsoft.VSTS.Scheduling.OriginalEstimate = {finalOriginalEstimate}");	
+                    }
+                }
+            }
+        }
+    }
+    
+    // Update Task 
+    
+    var selfTags = Self.GetField<string>("System.Tags", "");
+    var selfFeatureEpicTitle = Self.GetField<string>("System.ParentTitle");
+    var selfCategory = Self.GetField<string>("Labs.Category");
+
+    var isSelfChanged = false;
+    
+    if (selfTags != tag)
+    {
+        Self.SetField("System.Tags", tag);
+        isSelfChanged = true;
+    }
+
+    if (selfFeatureEpicTitle != featureEpicTitle)
+    {
+        Self.SetField("Labs.ParentTitle", featureEpicTitle);
+        isSelfChanged = true;
+    }
+    
+    if (selfCategory != category)
+    {
+        Self.SetField("Labs.Category", category);
+        isSelfChanged = true;
+    }
+
+    if (isSelfChanged)
+    {
+        Logger.Information($"Updated Task with ID: {Self.Id}, workItemType: {Self.WorkItemType}, System.Tags = {tag} and/or Labs.ParentTitle = {featureEpicTitle} and/or Labs.Category = {category}");
+    }
+}
