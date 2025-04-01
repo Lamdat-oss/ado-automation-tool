@@ -12,6 +12,7 @@ namespace Lamdat.ADOAutomationTool.Entities
         Task<WorkItem> GetWorkItem(int workItemId);
         Task<bool> SaveWorkItem(WorkItem newWorkItem, bool logErrorOtherwiseWarn = false);
         Task<bool> SaveWorkItemRelations(WorkItem workitem, List<WorkItemRelation> relations);
+        Task<List<WorkItem>> QuetyLinksByWiql(QueryLinksByWiqlPrms queryLinksByWiqlPrms);
         Task<ADOUser> WhoAmI();
     }
 }

@@ -2,6 +2,7 @@
 using Newtonsoft.Json;
 using System.Net.Http.Headers;
 using System.Text;
+using Microsoft.CodeAnalysis.Operations;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
@@ -14,6 +15,7 @@ namespace Lamdat.ADOAutomationTool.Service
         private readonly string _personalAccessToken;
         private readonly HttpClient _client;
         private readonly string _apiVersion = "6.0";
+        private const int MAX_LINKED_ITEMS = 200;
         private readonly Serilog.ILogger _logger;
         private readonly bool _bypassRules;
         private static readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
@@ -51,6 +53,7 @@ namespace Lamdat.ADOAutomationTool.Service
             _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
                 Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes(string.Format("{0}:{1}", "", personalAccessToken))));
+            _client.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=1");
 
             _logger = logger;
         }
@@ -77,36 +80,17 @@ namespace Lamdat.ADOAutomationTool.Service
                     var jsonString = await response.Content.ReadAsStringAsync();
                     var workItem = JsonConvert.DeserializeObject<WorkItem>(jsonString);
 
-                    if (workItem.relations != null)
+                    if (workItem == null)
                     {
-                        // https://learn.microsoft.com/en-us/azure/devops/boards/queries/link-type-reference?view=azure-devops
-
-                        foreach (var relation in workItem.relations)
-                        {
-                            string? relationType = relation.attributes?.name?.ToString();
-                            string relationName = relation.rel.ToString();
-
-                            if (relationName.StartsWith("System.") || relationName.StartsWith("Microsoft."))
-                            {
-                                string relUrl = relation.url.ToString();
-                                var lastIdx = relUrl.LastIndexOf('/');
-                                var relatedWorkItemIdStr = relUrl.Substring(lastIdx + 1, relUrl.Length - lastIdx - 1);
-                                var relatedWorkItemId = int.Parse(relatedWorkItemIdStr);
-
-
-                                workItem.Relations.Add(new WorkItemRelation
-                                {
-                                    Rel = relation.rel,
-                                    Url = relation.url,
-                                    RelationType = relationType,
-                                    RelatedWorkItemId = relatedWorkItemId
-                                });
-                            }
-                        }
+                        var errorMessage = $"Failed to retrieve a work item with ID '{workItemId}'. " +
+                                           $"Unexpected API response format: {jsonString}";
+                     
+                        _logger.Error(errorMessage);
+                        return new WorkItem() { Fields = new Dictionary<string, object>(), Id = 0 };
                     }
-                    workItem.Parent = workItem?.Relations?.Where(c => c?.RelationType == "Parent").FirstOrDefault();
-                    workItem.Children = workItem?.Relations?.Where(c => c?.RelationType == "Child").ToList();
 
+                    SetWorkItemRelationsAndSaveSystemConnection(workItem);
+                    
                     return workItem;
                 }
                 else
@@ -117,14 +101,174 @@ namespace Lamdat.ADOAutomationTool.Service
                         var errorContent = await response.Content.ReadAsStringAsync();
                         errorMessage += $" Error: {errorContent}";
                     }
-                    _logger.Warning(errorMessage);
+                    _logger.Error(errorMessage);
                     return new WorkItem() { Fields = new Dictionary<string, object>(), Id = 0 };
                 }
             }
             catch (Exception ex)
             {
-                _logger.Warning($"Failed to retreive work item, the error was : {ex.Message}");
+                _logger.Error($"Failed to retrieve work item, the error was : {ex.Message}");
                 return new WorkItem() { Fields = new Dictionary<string, object>(), Id = 0 };
+            }
+        }
+
+        public async Task<List<WorkItem>> QuetyLinksByWiql(QueryLinksByWiqlPrms queryLinksByWiqlPrms)
+        {
+            if (queryLinksByWiqlPrms == null)
+                throw new ArgumentNullException(nameof(queryLinksByWiqlPrms));
+            
+            try
+            {
+                var url = $"{_collectionURL}/{Project}/_apis/wit/wiql?";
+
+                if (queryLinksByWiqlPrms.Top.HasValue &&
+                    queryLinksByWiqlPrms.Top > 0)
+                {
+                    url += $"$top={queryLinksByWiqlPrms.Top}&";
+                }
+                else
+                {
+                    url += $"$top={MAX_LINKED_ITEMS}&";
+                }
+                
+                url += $"api-version={_apiVersion}";
+                
+                var queryString = $@" SELECT [System.Id]
+                    FROM workitemLinks
+                    WHERE
+                        (
+                            [Source].[System.WorkItemType] = '{queryLinksByWiqlPrms.SourceWorkItemType}'
+                            AND [Source].[System.Id] = '{queryLinksByWiqlPrms.SourceWorkItemId}'
+                        ) ";
+
+                if (!string.IsNullOrEmpty(queryLinksByWiqlPrms.LinkType))
+                {
+                    queryString += $@" 
+                        AND (
+                            [System.Links.LinkType] = '{queryLinksByWiqlPrms.LinkType}'
+                        ) ";
+                }
+
+                if (!string.IsNullOrEmpty(queryLinksByWiqlPrms.TargetWorkItemType))
+                {
+                    queryString += $@"
+                        AND (
+                            [Target].[System.WorkItemType] = '{queryLinksByWiqlPrms.TargetWorkItemType}'
+                        ) ";
+                }
+                
+                queryString += $@" 
+                    ORDER BY [System.ChangedDate] DESC
+                    MODE (MustContain)";
+                
+                var wiql = new { query = queryString };
+                
+                
+                var postValue = new StringContent(JsonConvert.SerializeObject(wiql), Encoding.UTF8, "application/json"); //mediaType needs to be application/json for a post call
+
+                // send query to REST endpoint to return list of id's from query
+                var method = new HttpMethod("POST");
+                var httpRequestMessage = new HttpRequestMessage(method, url) { Content = postValue };
+                var httpResponseMessage = await _client.SendAsync(httpRequestMessage);
+                
+
+                if (httpResponseMessage.IsSuccessStatusCode)
+                {
+                    var jsonString = await httpResponseMessage.Content.ReadAsStringAsync();
+                    var result = JsonConvert.DeserializeObject<WiqlQueryResult>(jsonString);
+
+                    if (result == null)
+                    {
+                        var errorMessage = $"Failed to retrieve the work item's referenced items for " +
+                                           $"'{queryLinksByWiqlPrms.SourceWorkItemType}' with ID '{queryLinksByWiqlPrms.SourceWorkItemId}'. " +
+                                           $"Unexpected API response format: {jsonString}";
+                     
+                        _logger.Error(errorMessage);
+                        return new List<WorkItem>();
+                    }
+                    else
+                    {
+
+                        var relevantRelations = result.WorkItemRelations
+                            .Where(wiRel => !string.IsNullOrEmpty(wiRel.Rel) &&
+                                            wiRel.Target != null && 
+                                            wiRel.Target.ID > 0 &&
+                                            wiRel.Source != null &&
+                                            wiRel.Source.ID == queryLinksByWiqlPrms.SourceWorkItemId)
+                            .ToList();
+                        
+                        var idsBuilder = new System.Text.StringBuilder();
+                        foreach (var item in relevantRelations)
+                        {
+                            idsBuilder.Append(item.Target.ID.ToString()).Append(",");   
+                        }
+                        string ids = idsBuilder.ToString().TrimEnd(new char[] { ',' });
+                        
+                        
+                        
+                        if (!string.IsNullOrWhiteSpace(ids))
+                        {
+                            var idsUrl = $"{_collectionURL}/{Project}/_apis/wit/workitems?ids={ids}&$expand=all&api-version={_apiVersion}";
+
+                            var getLinkedWorkItemsWithDetailsResponse = await _client.GetAsync(idsUrl);
+
+                            if (getLinkedWorkItemsWithDetailsResponse.IsSuccessStatusCode)
+                            {
+                                var dataResult = await getLinkedWorkItemsWithDetailsResponse.Content.ReadAsStringAsync();
+                                var resultWits = JsonConvert.DeserializeObject<QueryResult<WorkItem>>(dataResult);
+
+                                if (resultWits == null)
+                                {
+                                    var errorMessage = $"Failed to retrieve the work item's referenced items with details for " +
+                                                       $"'{queryLinksByWiqlPrms.SourceWorkItemType}' with ID '{queryLinksByWiqlPrms.SourceWorkItemId}'. " +
+                                                       $"Unexpected API response format: {dataResult}";
+                     
+                                    _logger.Error(errorMessage);
+                                    return new List<WorkItem>();
+                                }
+                                else
+                                {
+                                    foreach (WorkItem workItem in resultWits.Value)
+                                    {
+                                        SetWorkItemRelationsAndSaveSystemConnection(workItem);
+                                    }
+                                    return resultWits.Value;  
+                                }
+                            }
+                            else
+                            {
+                                var apiErrorMsg = await getLinkedWorkItemsWithDetailsResponse.Content.ReadAsStringAsync();
+                                var errorMessage = $"Failed to retrieve the work item's referenced items with details for " +
+                                    $"'{queryLinksByWiqlPrms.SourceWorkItemType}' with ID '{queryLinksByWiqlPrms.SourceWorkItemId}': " +
+                                    $"{apiErrorMsg}";
+                                
+                                _logger.Error(errorMessage);
+                                return new List<WorkItem>();
+                            }
+                        }
+                    }
+                    
+                    return new List<WorkItem>();
+                }
+                else
+                {
+                    var errorMessage = $"Failed to retrieve the work item's referenced items for " +
+                                       $"'{queryLinksByWiqlPrms.SourceWorkItemType}' with ID '{queryLinksByWiqlPrms.SourceWorkItemId}'.";
+                    if (httpResponseMessage.Content != null)
+                    {
+                        var errorContent = await httpResponseMessage.Content.ReadAsStringAsync();
+                        errorMessage += $" Error: {errorContent}";
+                    }
+                    _logger.Error(errorMessage);
+                    return new List<WorkItem>();
+                }
+            }
+            catch (Exception ex)
+            {
+                var errorMessage = $"An error has been occur during API call to fetch the work item's referenced items for " +
+                                   $"'{queryLinksByWiqlPrms.SourceWorkItemType}' with ID '{queryLinksByWiqlPrms.SourceWorkItemId}'.";
+                _logger.Error($"{errorMessage} {ex.Message}");
+                return new List<WorkItem>();
             }
         }
 
@@ -417,6 +561,43 @@ namespace Lamdat.ADOAutomationTool.Service
             }
         }
 
+        private void SetWorkItemRelationsAndSaveSystemConnection(WorkItem workItem)
+        {
+            if (workItem.relations != null)
+            {
+                // https://learn.microsoft.com/en-us/azure/devops/boards/queries/link-type-reference?view=azure-devops
+
+                foreach (var relation in workItem.relations)
+                {
+                    string? relationType = relation.attributes?.name?.ToString();
+                    string relationName = relation.rel.ToString();
+
+                    if (relationName.StartsWith("System.") || relationName.StartsWith("Microsoft."))
+                    {
+                        string relUrl = relation.url.ToString();
+                        var lastIdx = relUrl.LastIndexOf('/');
+                        var relatedWorkItemIdStr = relUrl.Substring(lastIdx + 1, relUrl.Length - lastIdx - 1);
+                        var relatedWorkItemId = int.Parse(relatedWorkItemIdStr);
+
+
+                        workItem.Relations.Add(new WorkItemRelation
+                        {
+                            Rel = relation.rel,
+                            Url = relation.url,
+                            RelationType = relationType,
+                            RelatedWorkItemId = relatedWorkItemId
+                        });
+                    }
+                }
+            }
+                    
+            workItem.Parent = workItem?.Relations?.Where(c => c?.RelationType == "Parent").FirstOrDefault();
+            workItem.Children = workItem?.Relations?.Where(c => c?.RelationType == "Child").ToList();
+                    
+            workItem.SetClient(this, _logger);
+        }
+        
+        
         ///// <summary>
         ///// 
         ///// </summary>

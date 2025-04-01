@@ -39,11 +39,11 @@ namespace Lamdat.ADOAutomationTool.Service
         /// <summary>
         /// Handles Payload
         /// </summary>
-        /// <param name="payload"></param>
+        /// <param name="webHookBody"></param>
         /// <returns></returns>
-        public async Task<string> HandleWebHook(string webHookBody)
+        public async Task<string?> HandleWebHook(string webHookBody)
         {
-            string err = null;
+            string? err = null;
             try
             {
                 WebHookInfo<WebHookResourceBase>? payloadBase = JsonConvert.DeserializeObject<WebHookInfo<WebHookResourceBase>>(webHookBody);
@@ -86,28 +86,34 @@ namespace Lamdat.ADOAutomationTool.Service
                     catch (Exception ex)
                     {
                         _logger.Warning($"Error getting workitem with id {payloadmerged?.Resource?.WorkItemId} - the error was: {ex.Message}, will not run scripts");
-                        return null; // we want ok if workitem was deleted during run
+                        return null; // we want to return HTTP Response OK if workitem was deleted during run
 
                     }
-                    if (witRcv == null)
-                        return null; // we want ok if workitem was deleted during run
+                    if (witRcv.Id == 0)
+                    {
+                        return null; // we want to return HTTP Response OK if workitem was deleted during run
+                    }
                 }
                 else
                 {
-                    witRcv = new WorkItem()
-                    {
-                        Fields = new Dictionary<string, object>(),
-                        Title = "--Test--"
-                    };
-                    return null; // we want ok if only test
+                    // witRcv = new WorkItem()
+                    // {
+                    //     Fields = new Dictionary<string, object>(),
+                    //     Title = "--Test--"
+                    // };
+                    return null; // we want to return HTTP Response OK if only test
                 }
                 ADOUser? lastRevisionUser = null;
-                if (witRcv != null)
+                
+                if (witRcv.Id > 0)
                 {
                     dynamic userChanged;
                     var userChangedSuccess = witRcv.Fields.TryGetValue("System.ChangedBy", out userChanged);
                     if (userChangedSuccess == false)
+                    {
+                        // TODO: here id said that the program will not run script, but the program can run
                         _logger.Warning("Workitem changed user not found, will not run scripts");
+                    }
                     else
                     {
                         lastRevisionUser = new ADOUser() { Identity = new Identity() { SubHeader = userChanged.uniqueName } };
@@ -125,7 +131,7 @@ namespace Lamdat.ADOAutomationTool.Service
                 _context.SelfChanges = CloneHelper.DeepClone(selfChangedDic);
                 _context.RelationChanges = CloneHelper.DeepClone(payloadmerged.Resource.Relations);
                 _context.Project = CloneHelper.DeepClone(payloadmerged.Project);
-                _context.SetProject(CloneHelper.DeepClone((payloadmerged.Project)));
+                _context.SetProject(CloneHelper.DeepClone(payloadmerged.Project));
                 _context.EventType = CloneHelper.DeepClone(payloadmerged.EventType);
 
                 //var context = new Context(webHookResource: payloadmerged.Resource, selfChanges: selfChangedDic, relationChanges: payloadmerged.Resource.Relations, workitem: witRcv, project: payloadmerged.Project, eventType: payloadmerged.EventType);
