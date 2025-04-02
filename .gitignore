@@ -138,4 +138,5 @@ $RECYCLE.BIN/
 _NCrunch*
 
 /logs/*.txt
+/logs/*.txt1
 /Src/Lamdat.ADOAutomationTool/logs
