@@ -8,9 +8,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="Scripts\ChangeWorkItemTitleOnUpdate.rule" />
-    <None Remove="scripts\SetParentStartEndByChild.rule" />
+    <Content Include="Scripts\**\*.*" 
+             Exclude="Scripts\DescriptionOnChangedWit.rule;Scripts\SetParentStartTargetDateByChild.rule">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="*.pfx">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
+
 
   <ItemGroup>
     <PackageReference Include="CS-Script" Version="4.8.16" />
@@ -25,6 +31,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Lamdat.ADOAutomationTool.Entities\Lamdat.ADOAutomationTool.Entities.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="logs\" />
   </ItemGroup>
 
 </Project>

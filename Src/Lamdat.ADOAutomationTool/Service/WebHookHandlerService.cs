@@ -47,6 +47,13 @@ namespace Lamdat.ADOAutomationTool.Service
             try
             {
                 WebHookInfo<WebHookResourceBase>? payloadBase = JsonConvert.DeserializeObject<WebHookInfo<WebHookResourceBase>>(webHookBody);
+
+                if (payloadBase == null)
+                {
+                    err = $"An error has been occured during parsing the webhook payload: Unknown payload format. {webHookBody}";
+                    _logger.Error(err);
+                    return err;
+                }
                 WebHookInfo<WebHookResourceUpdate> payloadmerged = new WebHookInfo<WebHookResourceUpdate>();
                 payloadmerged.Project = payloadBase.Project;
                 payloadmerged.ResourceContainers = payloadBase.ResourceContainers;
@@ -59,12 +66,16 @@ namespace Lamdat.ADOAutomationTool.Service
                 payloadmerged.Resource.Fields = payloadBase.Resource.Fields;
 
 
-                //payloadBase.Project,
                 if (payloadBase.EventType == "workitem.created")
                 {
-                    payloadBase.Resource.WorkItemId = payloadBase.Resource.Id;
                     payloadmerged.Resource.WorkItemId = payloadBase.Resource.Id;
                     WebHookInfo<WebHookResourceCreate>? payloadCreate = JsonConvert.DeserializeObject<WebHookInfo<WebHookResourceCreate>>(webHookBody);
+                    if (payloadCreate == null)
+                    {
+                        err = $"An error has been occured during parsing the webhook payload for 'workitem.created': Unknown payload format. {webHookBody}";
+                        _logger.Error(err);
+                        return err;
+                    }
                     payloadmerged.Resource.Relations = new Relations();
                     payloadmerged.Resource.Relations.Added = payloadCreate.Resource.Relations;
 
@@ -72,6 +83,12 @@ namespace Lamdat.ADOAutomationTool.Service
                 else if (payloadBase.EventType == "workitem.updated")
                 {
                     WebHookInfo<WebHookResourceUpdate>? payloadUpdated = JsonConvert.DeserializeObject<WebHookInfo<WebHookResourceUpdate>>(webHookBody);
+                    if (payloadUpdated == null)
+                    {
+                        err = $"An error has been occured during parsing the webhook payload for 'workitem.updated': Unknown payload format. {webHookBody}";
+                        _logger.Error(err);
+                        return err;
+                    }
                     payloadmerged.Resource.Relations = payloadUpdated.Resource.Relations;
                 }
 
@@ -81,11 +98,10 @@ namespace Lamdat.ADOAutomationTool.Service
                     try
                     {
                         witRcv = await _client.GetWorkItem(payloadmerged.Resource.WorkItemId);
-
                     }
                     catch (Exception ex)
                     {
-                        _logger.Warning($"Error getting workitem with id {payloadmerged?.Resource?.WorkItemId} - the error was: {ex.Message}, will not run scripts");
+                        _logger.Error($"Error getting workitem with id {payloadmerged?.Resource?.WorkItemId} - the error was: {ex.Message}, will not run scripts");
                         return null; // we want to return HTTP Response OK if workitem was deleted during run
 
                     }
@@ -111,7 +127,6 @@ namespace Lamdat.ADOAutomationTool.Service
                     var userChangedSuccess = witRcv.Fields.TryGetValue("System.ChangedBy", out userChanged);
                     if (userChangedSuccess == false)
                     {
-                        // TODO: here id said that the program will not run script, but the program can run
                         _logger.Warning("Workitem changed user not found, will not run scripts");
                     }
                     else
