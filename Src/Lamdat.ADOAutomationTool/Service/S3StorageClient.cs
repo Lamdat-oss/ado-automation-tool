@@ -103,8 +103,8 @@ namespace Lamdat.ADOAutomationTool.Service
                     {
                         string fileName = Path.GetFileName(fileNameWithPath);
                 
-                        if ( ! existingRules.Contains(fileName))
-                        {
+                        // if ( ! existingRules.Contains(fileName))
+                        // {
                             var fileUrl = url + '/' + fileNameWithPath;
                             
                             var clientForGetFileContent = GetConnectionForGetRequest(fileUrl);
@@ -127,7 +127,7 @@ namespace Lamdat.ADOAutomationTool.Service
                                 var errorMessage = $"Failed to fetch a file '{fileName}' from the S3 storage: {(int)responseOneRule.StatusCode} {responseOneRule.ReasonPhrase} {apiErrorMsg}";
                                 _logger.Error(errorMessage);
                             }   
-                        }
+                        // }
                     }
                 }
             }
