@@ -48,6 +48,11 @@ builder.Services.Configure<BasicAuthenticationOptions>(options =>
 });
 
 var settings = builder.Configuration.GetSection("Settings").Get<Settings>();
+if (settings == null)
+{
+    Console.WriteLine("An error has occured during parse of appsettings.json");
+    return;
+}
 
 builder.Services.AddCors(options =>
 {
@@ -67,6 +72,7 @@ builder.Services.AddSingleton(Log.Logger);
 builder.Services.AddSingleton<CSharpScriptEngine>(c => new CSharpScriptEngine(Log.Logger));
 builder.Services.AddTransient<IContext, Context>();
 builder.Services.AddSingleton<IAzureDevOpsClient, AzureDevOpsClient>(c => new AzureDevOpsClient(Log.Logger, settings.CollectionURL, settings.PAT, settings.BypassRules, settings.NotValidCertificates));
+builder.Services.AddTransient<IS3StorageClient, S3StorageClient>(c => new S3StorageClient(Log.Logger, settings.RulesStorageType, settings.S3StorageRegion, settings.S3Endpoint, settings.S3BucketName, settings.S3SecretKey, settings.S3AccessKey, settings.S3FolderPath)); ;
 builder.Services.AddTransient<IWebHookHandlerService, WebHookHandlerService>();
 builder.Services.AddSingleton<IMemoryCleaner>(m => new MemoryCleaner(Log.Logger, settings.MemoryCleanupMinutes));
 
@@ -102,7 +108,6 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-var appSettings = builder.Configuration.GetSection("Settings").Get<Settings>();
 
 if (appSettings?.EnableAutoHttpsRedirect == true)
     app.UseHttpsRedirection();
@@ -110,14 +115,14 @@ if (appSettings?.EnableAutoHttpsRedirect == true)
 if (string.IsNullOrWhiteSpace(settings.CollectionURL))
     logger.LogWarning("Azure DevOps Collection URL not set in configuration");
 else
-    logger.LogInformation($"Azure DevOps Collection URL: {appSettings.CollectionURL}");
+    logger.LogInformation($"Azure DevOps Collection URL: {settings.CollectionURL}");
 
 if (string.IsNullOrWhiteSpace(settings.AllowedCorsOrigin))
     logger.LogWarning("Azure DevOps allowed CORS not set in configuration");
 else
-    logger.LogInformation($"Azure DevOps allowed CORS origin: {appSettings.AllowedCorsOrigin}");
+    logger.LogInformation($"Azure DevOps allowed CORS origin: {settings.AllowedCorsOrigin}");
 
-logger.LogInformation($"If to allow not valid Azure Devops Certificates: {appSettings.NotValidCertificates}");
+logger.LogInformation($"If to allow not valid Azure Devops Certificates: {settings.NotValidCertificates}");
 
 if (string.IsNullOrWhiteSpace(settings.PAT))
     logger.LogWarning("PAT not set in configuration");
@@ -129,5 +134,11 @@ var csScriptEngine = app.Services.GetRequiredService<CSharpScriptEngine>();
 
 var webHandler = app.Services.GetRequiredService<IWebHookHandlerService>();
 webHandler.Init();
+
+if (settings.RulesStorageType != RulesStorageType.Disk)
+{
+    var s3ClientHandle = app.Services.GetRequiredService<IS3StorageClient>();
+    s3ClientHandle.DownloadRules().Wait();
+}
 
 app.Run();
