@@ -109,7 +109,7 @@ app.UseAuthorization();
 app.MapControllers();
 
 
-if (appSettings?.EnableAutoHttpsRedirect == true)
+if (settings?.EnableAutoHttpsRedirect == true)
     app.UseHttpsRedirection();
 
 if (string.IsNullOrWhiteSpace(settings.CollectionURL))
