@@ -29,7 +29,7 @@ namespace Lamdat.ADOAutomationTool.Auth
         {
             if (!Request.Headers.ContainsKey(_authorizationHeaderName))
             {
-                Logger.LogInformation("Authorization header missing");
+                Logger.LogDebug("Authorization header missing");
                 return AuthenticateResult.Fail("Authorization header missing");
             }
 
