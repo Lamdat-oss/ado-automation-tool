@@ -58,6 +58,7 @@ Alternatively, you can use environment variables to configure the tool. Set the 
 - `SETTINGS__SHAREDKEY`: Key used to authenticate to the web service.
 - `SETTINGS__NOTVALIDCERTIFICATES`: If to allow working with not valid azure devops certificates
 - `SETTINGS__ENABLEAUTOHTTPSREDIRECT`: If to enable auto http to https redirect
+- `SETTINGS__SCRIPTEXECUTIONTIMEOUTSECONDS`: SCRIPT EXECUTION TIMEOUT IN SECONDS
 
 ## Usage
 

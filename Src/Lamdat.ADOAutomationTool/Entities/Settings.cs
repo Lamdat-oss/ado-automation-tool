@@ -31,5 +31,7 @@
         public string? S3FolderPath { get; set; }
         
         public string? S3StorageRegion { get; set; }
+
+        public int ScriptExecutionTimeoutSeconds { get; set; }
     }
 }

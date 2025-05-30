@@ -32,5 +32,7 @@ namespace Lamdat.ADOAutomationTool.Entities
         public Dictionary<string, object> SelfChanges { get; set; }
 
         public Relations RelationChanges { get; set; }
+
+        public int ScriptExecutionTimeoutSeconds { get; set; } = 600; 
     }
 }

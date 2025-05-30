@@ -13,6 +13,7 @@ namespace Lamdat.ADOAutomationTool.Entities
         Dictionary<string, object> SelfChanges { get; set; }
         WebHookResourceUpdate WebHookResource { get; set; }
         void SetProject(string projectName);
-       
+        public int ScriptExecutionTimeoutSeconds { get; set; }
+
     }
 }
