@@ -69,6 +69,7 @@ Log.Logger = new LoggerConfiguration()
     .CreateBootstrapLogger();
 
 builder.Services.AddSingleton(Log.Logger);
+builder.Services.AddSingleton<WebHookContextQueue>(c => new WebHookContextQueue(Log.Logger, settings));
 builder.Services.AddSingleton<CSharpScriptEngine>(c => new CSharpScriptEngine(Log.Logger));
 builder.Services.AddTransient<IContext, Context>();
 builder.Services.AddSingleton<IAzureDevOpsClient, AzureDevOpsClient>(c => new AzureDevOpsClient(Log.Logger, settings.CollectionURL, settings.PAT, settings.BypassRules, settings.NotValidCertificates));
@@ -76,9 +77,15 @@ builder.Services.AddTransient<IS3StorageClient, S3StorageClient>(c => new S3Stor
 builder.Services.AddTransient<IWebHookHandlerService, WebHookHandlerService>();
 builder.Services.AddSingleton<IMemoryCleaner>(m => new MemoryCleaner(Log.Logger, settings.MemoryCleanupMinutes));
 
+
 builder.Host.UseSerilog();
 var app = builder.Build();
 
+var contextRequestProcessingService = new WebHoolsContextQueueProcessorService(
+      app.Services.GetRequiredService<WebHookContextQueue>(),
+      app.Services.GetRequiredService<CSharpScriptEngine>(),
+      app.Services.GetRequiredService<Serilog.ILogger>()
+  );
 
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 var memoryCleaner = app.Services.GetRequiredService<IMemoryCleaner>();
@@ -129,6 +136,15 @@ if (string.IsNullOrWhiteSpace(settings.PAT))
 
 if (string.IsNullOrWhiteSpace(settings.SharedKey))
     logger.LogWarning("Shared Key not set in configuration");
+
+if (settings.ScriptExecutionTimeoutSeconds == 0)
+    settings.ScriptExecutionTimeoutSeconds = 60; // Default to 60 seconds if not set
+
+if (settings.MaxQueueWebHookRequestCount == 0)
+    settings.ScriptExecutionTimeoutSeconds = 1000; // Default to 1000 seconds if not set
+
+logger.LogInformation($"Max Webhook Queue Count is {settings.MaxQueueWebHookRequestCount}");
+logger.LogInformation($"Script Execution timeout is {settings.ScriptExecutionTimeoutSeconds} seconds");
 
 var csScriptEngine = app.Services.GetRequiredService<CSharpScriptEngine>();
 

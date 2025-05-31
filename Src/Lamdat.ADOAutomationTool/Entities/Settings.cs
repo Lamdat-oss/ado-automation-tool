@@ -17,21 +17,23 @@
         public bool EnableAutoHttpsRedirect { get; set; } = true;
 
         public double MemoryCleanupMinutes { get; set; } = 2;
-        
-        public RulesStorageType RulesStorageType { get; set; } = RulesStorageType.Disk; 
-        
+
+        public RulesStorageType RulesStorageType { get; set; } = RulesStorageType.Disk;
+
         public string? S3BucketName { get; set; }
-        
+
         public string? S3AccessKey { get; set; }
-        
+
         public string? S3SecretKey { get; set; }
-        
+
         public string? S3Endpoint { get; set; }
-        
+
         public string? S3FolderPath { get; set; }
-        
+
         public string? S3StorageRegion { get; set; }
 
         public int ScriptExecutionTimeoutSeconds { get; set; }
+
+        public int MaxQueueWebHookRequestCount { get; set; } = 1000;
     }
 }

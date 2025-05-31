@@ -9,18 +9,20 @@ namespace Lamdat.ADOAutomationTool.Service
     {
         private readonly Serilog.ILogger _logger;
         private readonly Settings _setting;
+        private readonly WebHookContextQueue _contextRequestsQueue;
         private static ADOUser SystemUser { get; set; }
         private readonly CSharpScriptEngine _scriptEngine;
         private IContext _context;
         private IAzureDevOpsClient _client;
 
-        public WebHookHandlerService(CSharpScriptEngine scriptEngine, Serilog.ILogger logger, IContext context, IOptions<Settings> settingsAccessor, IAzureDevOpsClient client)
+        public WebHookHandlerService(CSharpScriptEngine scriptEngine, WebHookContextQueue contextRequestsQueue, Serilog.ILogger logger, IContext context, IOptions<Settings> settingsAccessor, IAzureDevOpsClient client)
         {
             _logger = logger;
             _scriptEngine = scriptEngine;
             _setting = settingsAccessor.Value;
             _context = context;
             _client = client;
+            _contextRequestsQueue = contextRequestsQueue;
         }
 
         public async Task Init()
@@ -120,7 +122,7 @@ namespace Lamdat.ADOAutomationTool.Service
                     return null; // we want to return HTTP Response OK if only test
                 }
                 ADOUser? lastRevisionUser = null;
-                
+
                 if (witRcv.Id > 0)
                 {
                     dynamic userChanged;
@@ -182,14 +184,16 @@ namespace Lamdat.ADOAutomationTool.Service
                     else
                     {
                         //var engine = new CSharpScriptEngine(_logger);
-                        err = await _scriptEngine.ExecuteScripts(_context);
+                        err = _contextRequestsQueue.Enqueue(_context);
+                        //err = await _scriptEngine.ExecuteScripts(_context);
                     }
                     //}
                 }
                 else
                 {
                     //var engine = new CSharpScriptEngine(_logger);
-                    err = await _scriptEngine.ExecuteScripts(_context);
+                    err = _contextRequestsQueue.Enqueue(_context);
+                    //err = await _scriptEngine.ExecuteScripts(_context);
                 }
 
             }
