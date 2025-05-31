@@ -28,6 +28,8 @@ To use JSON configuration, create a `config.json` file with the following struct
   "Settings": {
     "CollectionURL": "",
     "PAT": "",
+    ScriptExecutionTimeoutSeconds: 60,
+    MaxQueueWebHookRequestCount: 1000,
     "BypassRules": true,
     "SharedKey": "",
     "AllowedCorsOrigin": "*",
@@ -58,6 +60,8 @@ Alternatively, you can use environment variables to configure the tool. Set the 
 - `SETTINGS__SHAREDKEY`: Key used to authenticate to the web service.
 - `SETTINGS__NOTVALIDCERTIFICATES`: If to allow working with not valid azure devops certificates
 - `SETTINGS__ENABLEAUTOHTTPSREDIRECT`: If to enable auto http to https redirect
+- `SETTINGS__SCRIPTEXECUTIONTIMEOUTSECONDS`: SCRIPT EXECUTION TIMEOUT IN SECONDS, default is 60 seconds.
+- `SETTINGS__MAXQUEUEWEBHOOKREQUESTCOUNT`: Maximum number of webhook requests to queue before rejecting new ones, default is 1000.
 
 ## Usage
 

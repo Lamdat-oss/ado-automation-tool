@@ -8,13 +8,17 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="Scripts\**\*.*" 
-             Exclude="Scripts\DescriptionOnChangedWit.rule;Scripts\SetParentStartTargetDateByChild.rule">
+    <Content Include="Scripts\**\*.*">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="*.pfx">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Remove="Scripts\1.DescriptionOnChangedWit.rule" />
+    <Content Remove="Scripts\2.SetParentStartTargetDateByChild.rule" />
   </ItemGroup>
 
 

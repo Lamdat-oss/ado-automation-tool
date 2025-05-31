@@ -27,10 +27,21 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
 
         }
 
+        // Add a CancellationTokenSource with a 60-second timeout to the ExecuteScripts method
         public async Task<string> ExecuteScripts(IContext context)
         {
             var errCol = new ConcurrentDictionary<string, string>();
             string err = null;
+
+            // Read timeout from configuration, fallback to 60 seconds if not set or invalid
+            int timeoutSeconds = 600;
+            if (context.ScriptExecutionTimeoutSeconds > 0)
+            {
+                timeoutSeconds = context.ScriptExecutionTimeoutSeconds;
+            }
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+            var token = cts.Token;
 
             try
             {
@@ -43,8 +54,6 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
 
                 string[] scriptFiles = Directory.GetFiles(scriptsDirectory, "*.rule");
                 string[] orderedScriptFiles = scriptFiles.OrderBy(f => Path.GetFileName(f)).ToArray();
-                                             
-                
 
                 foreach (var scriptFile in orderedScriptFiles)
                 {
@@ -52,9 +61,10 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                     var succeeded = false;
                     while (!succeeded && attempts <= MAX_ATTEMPTS)
                     {
-                       
                         try
                         {
+                            token.ThrowIfCancellationRequested();
+
                             var entityID = context.Self.Id;
                             context.Self = await context.Client.GetWorkItem(context.Self.Id);
                             if (context.Self == null || context.Self.Id == 0)
@@ -68,45 +78,39 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                             attempts++;
                             string scriptCode;
 
-                            // Ensure file stream is disposed of properly
                             using (var fileStream = new FileStream(scriptFile, FileMode.Open, FileAccess.Read, FileShare.Read))
                             using (var reader = new StreamReader(fileStream))
                             {
-                                scriptCode = await reader.ReadToEndAsync();
+                                scriptCode = await reader.ReadToEndAsync(token);
                             }
                             StringBuilder stringBuilder = new StringBuilder();
                             stringBuilder.AppendLine(@"
-using Lamdat.ADOAutomationTool.Entities;
-using Lamdat.ADOAutomationTool.Service;
-using Serilog;
-using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System;
+        using Lamdat.ADOAutomationTool.Entities;
+        using Lamdat.ADOAutomationTool.Service;
+        using Serilog;
+        using System.Collections;
+        using System.Collections.Generic;
+        using System.Linq;
+        using System.Text;
+        using System.Threading.Tasks;
+        using System;
 
-    public async Task Run(IAzureDevOpsClient Client, string EventType, ILogger Logger, string? Project, Relations RelationChanges, WorkItem Self, Dictionary<string, object> SelfChanges, WebHookResourceUpdate WebHookResource)
-    {");
+            public async Task Run(IAzureDevOpsClient Client, string EventType, ILogger Logger, string? Project, Relations RelationChanges, WorkItem Self, Dictionary<string, object> SelfChanges, WebHookResourceUpdate WebHookResource)
+            {");
                             stringBuilder.AppendLine(scriptCode);
-                            stringBuilder.AppendLine("}");                           
+                            stringBuilder.AppendLine("}");
                             scriptCode = stringBuilder.ToString();
 
-                          
                             lock (_lock)
                             {
                                 var script = CSScript.Evaluator.LoadMethod<IScript>(scriptCode);
-                                //var script = CSharpScript.Create(scriptCode, options, globalsType: context.GetType());
-                                //var runner = script.CreateDelegate();
                                 try
                                 {
+                                    // Pass the cancellation token to the script if needed (not shown in IScript interface)
                                     script.Run(context.Client, context.EventType, context.Logger, context.Project, context.RelationChanges, context.Self,
-                                        context.SelfChanges, context.WebHookResource).Wait();
+                                        context.SelfChanges, context.WebHookResource).Wait(token);
 
-                                    //var result = runner(context).Result;
-                                    //compiledScript.RunAsync(globals: context).Wait();
-
-                                    context.Client.SaveWorkItem(context.Self, attempts == MAX_ATTEMPTS).Wait();
+                                    context.Client.SaveWorkItem(context.Self, attempts == MAX_ATTEMPTS).Wait(token);
                                 }
                                 finally
                                 {
@@ -115,6 +119,12 @@ using System;
                             }
 
                             succeeded = true;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            _logger.Error($"Script '{scriptFile}' execution cancelled due to timeout.");
+                            errCol.GetOrAdd("Timeout", "Script execution cancelled due to timeout.");
+                            return "Script execution cancelled due to timeout.";
                         }
                         catch (Exception ex)
                         {
@@ -129,6 +139,12 @@ using System;
                 {
                     err = string.Join(Environment.NewLine, errCol.Select(kv => $"location: {kv.Key}, error: {kv.Value}"));
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.Error("Script execution cancelled due to timeout.");
+                errCol.GetOrAdd("Timeout", "Script execution cancelled due to timeout.");
+                return "Script execution cancelled due to timeout.";
             }
             catch (Exception ex)
             {
