@@ -151,6 +151,7 @@ namespace Lamdat.ADOAutomationTool.Service
                 _context.SetProject(CloneHelper.DeepClone(payloadmerged.Project));
                 _context.EventType = CloneHelper.DeepClone(payloadmerged.EventType);
                 _context.ScriptExecutionTimeoutSeconds = _setting.ScriptExecutionTimeoutSeconds;
+                _context.ScriptRunId = Guid.NewGuid().ToString();
 
                 //var context = new Context(webHookResource: payloadmerged.Resource, selfChanges: selfChangedDic, relationChanges: payloadmerged.Resource.Relations, workitem: witRcv, project: payloadmerged.Project, eventType: payloadmerged.EventType);
 

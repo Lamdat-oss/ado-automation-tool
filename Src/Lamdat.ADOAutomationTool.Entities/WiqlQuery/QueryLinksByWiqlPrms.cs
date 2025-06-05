@@ -26,5 +26,10 @@ namespace Lamdat.ADOAutomationTool.Entities
         /// Optional. Maximum amount of linked entities. Default 200
         /// </summary>
         public int? Top { get; set; }
+        
+        /// <summary>
+        /// Optional. Which exactly fields to query 
+        /// </summary>
+        public List<string> Fields { get; set; }
     }
 }

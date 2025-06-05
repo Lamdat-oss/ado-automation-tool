@@ -116,6 +116,8 @@ namespace Lamdat.ADOAutomationTool.Service
         {
             if (queryLinksByWiqlPrms == null)
                 throw new ArgumentNullException(nameof(queryLinksByWiqlPrms));
+
+            var totalLinkedWorkItems = new List<WorkItem>();
             
             try
             {
@@ -125,10 +127,6 @@ namespace Lamdat.ADOAutomationTool.Service
                     queryLinksByWiqlPrms.Top > 0)
                 {
                     url += $"$top={queryLinksByWiqlPrms.Top}&";
-                }
-                else
-                {
-                    url += $"$top={MAX_LINKED_ITEMS}&";
                 }
                 
                 url += $"api-version={_apiVersion}";
@@ -197,55 +195,98 @@ namespace Lamdat.ADOAutomationTool.Service
                                             wiRel.Source.ID == queryLinksByWiqlPrms.SourceWorkItemId)
                             .ToList();
                         
-                        var idsBuilder = new System.Text.StringBuilder();
-                        foreach (var item in relevantRelations)
-                        {
-                            idsBuilder.Append(item.Target.ID.ToString()).Append(",");   
-                        }
-                        string ids = idsBuilder.ToString().TrimEnd(new char[] { ',' });
                         
-                        
-                        
-                        if (!string.IsNullOrWhiteSpace(ids))
-                        {
-                            var idsUrl = $"{_collectionURL}/{Project}/_apis/wit/workitems?ids={ids}&$expand=all&api-version={_apiVersion}";
 
-                            var getLinkedWorkItemsWithDetailsResponse = await _client.GetAsync(idsUrl);
-
-                            if (getLinkedWorkItemsWithDetailsResponse.IsSuccessStatusCode)
+                        var skip = 0;
+                        var total = relevantRelations.Count;
+                        
+                        while (skip < total)
+                        {
+                            var idsBuilder = new System.Text.StringBuilder();
+                            var pageSize = 0;
+                            
+                            for (var i = 0; i < MAX_LINKED_ITEMS && skip + i < total; i++)
                             {
-                                var dataResult = await getLinkedWorkItemsWithDetailsResponse.Content.ReadAsStringAsync();
-                                var resultWits = JsonConvert.DeserializeObject<QueryResult<WorkItem>>(dataResult);
-
-                                if (resultWits == null)
+                                var relatedWorkItem = relevantRelations.ElementAtOrDefault(skip + i);
+                                if (relatedWorkItem != null && relatedWorkItem.Target != null)
                                 {
-                                    var errorMessage = $"Failed to retrieve the work item's referenced items with details for " +
-                                                       $"'{queryLinksByWiqlPrms.SourceWorkItemType}' with ID '{queryLinksByWiqlPrms.SourceWorkItemId}'. " +
-                                                       $"Unexpected API response format: {dataResult}";
-                     
-                                    _logger.Error(errorMessage);
-                                    return new List<WorkItem>();
+                                    idsBuilder.Append(relatedWorkItem.Target.ID.ToString()).Append(",");
+                                    pageSize++;
+                                }
+                            }
+                            string ids = idsBuilder.ToString().TrimEnd(new char[] { ',' });
+                            
+                            
+                            if (!string.IsNullOrWhiteSpace(ids))
+                            {
+                                var idsUrl = $"{_collectionURL}/{Project}/_apis/wit/workitems?ids={ids}";
+                                
+                                if (queryLinksByWiqlPrms.Fields != null && queryLinksByWiqlPrms.Fields.Count > 0)
+                                {
+                                    var fieldsBuilder = new System.Text.StringBuilder();
+                                    foreach (var field in queryLinksByWiqlPrms.Fields)
+                                    {
+                                        fieldsBuilder.Append(field).Append(",");
+                                    }
+                                    string fieldsStr = fieldsBuilder.ToString().TrimEnd(new char[] { ',' });
+                                    
+                                    idsUrl += $"&fields={fieldsStr}";
                                 }
                                 else
                                 {
-                                    foreach (WorkItem workItem in resultWits.Value)
-                                    {
-                                        SetWorkItemRelationsAndSaveSystemConnection(workItem);
-                                    }
-                                    return resultWits.Value;  
+                                    idsUrl += $"&$expand=all";
                                 }
+                                
+                                idsUrl += $"&api-version={_apiVersion}";
+                                
+                                
+                                var getLinkedWorkItemsWithDetailsResponse = await _client.GetAsync(idsUrl);
+
+                                if (getLinkedWorkItemsWithDetailsResponse.IsSuccessStatusCode)
+                                {
+                                    var dataResult = await getLinkedWorkItemsWithDetailsResponse.Content.ReadAsStringAsync();
+                                    var resultWits = JsonConvert.DeserializeObject<QueryResult<WorkItem>>(dataResult);
+
+                                    if (resultWits == null)
+                                    {
+                                        var errorMessage = $"Failed to retrieve the work item's referenced items with details for " +
+                                                           $"'{queryLinksByWiqlPrms.SourceWorkItemType}' with ID '{queryLinksByWiqlPrms.SourceWorkItemId}'. " +
+                                                           $"Unexpected API response format: {dataResult}";
+                         
+                                        _logger.Error(errorMessage);
+                                    }
+                                    else
+                                    {
+                                        foreach (WorkItem workItem in resultWits.Value)
+                                        {
+                                            SetWorkItemRelationsAndSaveSystemConnection(workItem);
+                                            totalLinkedWorkItems.Add(workItem);
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    var apiErrorMsg = await getLinkedWorkItemsWithDetailsResponse.Content.ReadAsStringAsync();
+                                    var errorMessage = $"Failed to retrieve the work item's referenced items with details for " +
+                                        $"'{queryLinksByWiqlPrms.SourceWorkItemType}' with ID '{queryLinksByWiqlPrms.SourceWorkItemId}': " +
+                                        $"{apiErrorMsg}";
+                                    
+                                    _logger.Error(errorMessage);
+                                }
+                            }
+
+
+                            if (skip + pageSize == skip)
+                            {
+                                break;
                             }
                             else
                             {
-                                var apiErrorMsg = await getLinkedWorkItemsWithDetailsResponse.Content.ReadAsStringAsync();
-                                var errorMessage = $"Failed to retrieve the work item's referenced items with details for " +
-                                    $"'{queryLinksByWiqlPrms.SourceWorkItemType}' with ID '{queryLinksByWiqlPrms.SourceWorkItemId}': " +
-                                    $"{apiErrorMsg}";
-                                
-                                _logger.Error(errorMessage);
-                                return new List<WorkItem>();
+                                skip += pageSize;   
                             }
                         }
+
+                        return totalLinkedWorkItems;
                     }
                     
                     return new List<WorkItem>();
@@ -383,7 +424,7 @@ namespace Lamdat.ADOAutomationTool.Service
                 }
                 else
                 {
-                    var errorMessage = "Failed to save work item.";
+                    var errorMessage = $"Failed to save work item with ID {newWorkItem.Id}.";
                     if (response.Content != null)
                     {
                         var errorContent = await response.Content.ReadAsStringAsync();

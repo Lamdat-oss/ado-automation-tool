@@ -1,4 +1,6 @@
 ﻿
+cancellationToken.ThrowIfCancellationRequested();
+
 bool needsUpdate=false;
 WorkItem parentWit = null;
 
