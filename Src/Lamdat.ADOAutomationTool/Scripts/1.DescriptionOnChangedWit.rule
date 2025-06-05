@@ -1,4 +1,6 @@
 ﻿
+cancellationToken.ThrowIfCancellationRequested();
+
 Logger.Information($"Received event type: {EventType},Work Item Id: {Self.Id}, Title: '{Self.Title}, State: {Self.State}, WorkItemType:  {Self.WorkItemType}");
 
 

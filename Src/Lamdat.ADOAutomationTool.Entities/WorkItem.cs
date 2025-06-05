@@ -128,7 +128,8 @@ namespace Lamdat.ADOAutomationTool.Entities
                     SourceWorkItemType = WorkItemType,
                     LinkType = followingLinksPrms.LinkType,
                     TargetWorkItemType = followingLinksPrms.WhereTypeIs,
-                    Top = followingLinksPrms.AtMost
+                    Top = followingLinksPrms.AtMost,
+                    Fields = followingLinksPrms.FieldsToQuery
                 });
 
                 return linkedWorkItems;

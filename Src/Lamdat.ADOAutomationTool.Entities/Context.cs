@@ -34,5 +34,7 @@ namespace Lamdat.ADOAutomationTool.Entities
         public Relations RelationChanges { get; set; }
 
         public int ScriptExecutionTimeoutSeconds { get; set; } = 60; 
+        
+        public string ScriptRunId { get; set; } 
     }
 }

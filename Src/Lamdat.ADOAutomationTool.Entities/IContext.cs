@@ -14,6 +14,7 @@ namespace Lamdat.ADOAutomationTool.Entities
         WebHookResourceUpdate WebHookResource { get; set; }
         void SetProject(string projectName);
         public int ScriptExecutionTimeoutSeconds { get; set; }
+        public string ScriptRunId { get; set; }
 
     }
 }
