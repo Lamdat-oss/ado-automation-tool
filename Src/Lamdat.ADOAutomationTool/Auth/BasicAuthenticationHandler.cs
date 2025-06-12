@@ -37,7 +37,7 @@ namespace Lamdat.ADOAutomationTool.Auth
             if (!authorizationHeader.StartsWith(_basicSchemeName + " ", StringComparison.OrdinalIgnoreCase))
             {
                 Logger.LogInformation("Invalid authentication scheme");
-                return AuthenticateResult.Fail("Invalid authentication scheme");
+                return AuthenticateResult.NoResult();
             }
 
             var encodedCredentials = authorizationHeader.Substring(_basicSchemeName.Length).Trim();
