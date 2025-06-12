@@ -33,7 +33,7 @@ namespace Lamdat.ADOAutomationTool.Service
             }
             catch (Exception ex)
             {
-                _logger.Error($"WebHook handler failed with getting revisions: {ex.Message}");
+                _logger.Error($"WebHook handler failed: {ex.Message}, {ex.StackTrace}");
 
 
             }
@@ -200,7 +200,7 @@ namespace Lamdat.ADOAutomationTool.Service
             }
             catch (Exception ex)
             {
-                _logger.Error($"WebHook handler failed: {ex.Message}");
+                _logger.Error($"WebHook handler failed: {ex.Message}, {ex.StackTrace}");
                 throw;
             }
             return err;
