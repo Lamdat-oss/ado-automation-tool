@@ -163,7 +163,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
             }
             catch (Exception ex)
             {
-                var erro = $"Error executing scripts: {ex.Message}";
+                var erro = $"Error executing scripts: {ex.Message}, {ex.StackTrace}";
                 _logger.Error(erro);
                 errCol.GetOrAdd("Error", erro);
             }
