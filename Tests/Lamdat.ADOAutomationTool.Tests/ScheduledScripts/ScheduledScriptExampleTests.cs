@@ -6,15 +6,8 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
     /// <summary>
     /// Example tests demonstrating how to test scheduled scripts
     /// </summary>
-    public class ScheduledScriptExampleTests : IDisposable
+    public class ScheduledScriptExampleTests : ScheduledScriptTestBase
     {
-        private readonly ScheduledScriptTestRunner _testRunner;
-
-        public ScheduledScriptExampleTests()
-        {
-            _testRunner = new ScheduledScriptTestRunner();
-        }
-
         [Fact]
         public async Task SimpleLoggingScript_ShouldExecuteSuccessfully()
         {
@@ -26,7 +19,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             ";
 
             // Act
-            var result = await _testRunner.ExecuteScriptAsync(script);
+            var result = await ExecuteScriptAsync(script);
 
             // Assert
             result.ShouldBeSuccessful();
@@ -57,16 +50,16 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             ";
 
             // Act
-            var result = await _testRunner.ExecuteScriptAsync(script);
+            var result = await ExecuteScriptAsync(script);
 
             // Assert
             result.ShouldBeSuccessful();
             result.ShouldHaveLogMessageContaining("Creating a new work item");
             result.ShouldHaveLogMessageContaining("Work item created with ID:");
             
-            _testRunner.MockClient.ShouldHaveSavedWorkItems(1);
+            MockClient.ShouldHaveSavedWorkItems(1);
             
-            var savedWorkItem = _testRunner.MockClient.SavedWorkItems.First();
+            var savedWorkItem = MockClient.SavedWorkItems.First();
             savedWorkItem.ShouldHaveTitle("Automated Test Item");
             savedWorkItem.ShouldHaveWorkItemType("Task");
             savedWorkItem.ShouldHaveState("New");
@@ -77,9 +70,9 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
         {
             // Arrange
             // Create some test work items
-            _testRunner.CreateTestWorkItem("Bug", "Test Bug 1", "Active");
-            _testRunner.CreateTestWorkItem("Task", "Test Task 1", "New");
-            _testRunner.CreateTestWorkItem("Bug", "Test Bug 2", "Resolved");
+            CreateTestWorkItem("Bug", "Test Bug 1", "Active");
+            CreateTestWorkItem("Task", "Test Task 1", "New");
+            CreateTestWorkItem("Bug", "Test Bug 2", "Resolved");
 
             var script = @"
                 Logger.Information(""Querying work items..."");
@@ -94,12 +87,14 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                 
                 foreach (var bug in bugs)
                 {
-                    Logger.Information($""Bug: {bug.Id} - {bug.GetField<string>(""""System.Title"""")} ({bug.GetField<string>(""""System.State"""")})"");
+                    var title = bug.GetField<string>(""System.Title"");
+                    var state = bug.GetField<string>(""System.State"");
+                    Logger.Information($""Bug: {bug.Id} - {title} ({state})"");
                 }
             ";
 
             // Act
-            var result = await _testRunner.ExecuteScriptAsync(script);
+            var result = await ExecuteScriptAsync(script);
 
             // Assert
             result.ShouldBeSuccessful();
@@ -108,14 +103,14 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             result.ShouldHaveLogMessageContaining("Test Bug 1");
             result.ShouldHaveLogMessageContaining("Test Bug 2");
             
-            _testRunner.MockClient.ShouldHaveExecutedQueries(1);
+            MockClient.ShouldHaveExecutedQueries(1);
         }
 
         [Fact]
         public async Task WorkItemUpdateScript_ShouldModifyExistingWorkItem()
         {
             // Arrange
-            var existingWorkItem = _testRunner.CreateTestWorkItem("Task", "Original Title", "New");
+            var existingWorkItem = CreateTestWorkItem("Task", "Original Title", "New");
             
             var script = $@"
                 Logger.Information(""Updating work item {existingWorkItem.Id}..."");
@@ -137,16 +132,16 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             ";
 
             // Act
-            var result = await _testRunner.ExecuteScriptAsync(script);
+            var result = await ExecuteScriptAsync(script);
 
             // Assert
             result.ShouldBeSuccessful();
             result.ShouldHaveLogMessageContaining($"Updating work item {existingWorkItem.Id}");
             result.ShouldHaveLogMessageContaining($"Updated work item {existingWorkItem.Id}");
             
-            _testRunner.MockClient.ShouldHaveSavedWorkItems(1);
+            MockClient.ShouldHaveSavedWorkItems(1);
             
-            var updatedWorkItem = _testRunner.MockClient.SavedWorkItems.First();
+            var updatedWorkItem = MockClient.SavedWorkItems.First();
             updatedWorkItem.ShouldHaveTitle("Updated Title");
             updatedWorkItem.ShouldHaveState("Active");
             updatedWorkItem.ShouldHaveField("Custom.ProcessedBy", "Scheduled Script");
@@ -162,7 +157,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             ";
 
             // Act
-            var result = await _testRunner.ExecuteScriptAsync(script);
+            var result = await ExecuteScriptAsync(script);
 
             // Assert
             result.ShouldFailWith<InvalidOperationException>();
@@ -189,7 +184,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
 
             // Act
             using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
-            var result = await _testRunner.ExecuteScriptAsync(script, cts.Token);
+            var result = await ExecuteScriptAsync(script, cts.Token);
 
             // Assert
             result.ShouldFailWith<OperationCanceledException>();
@@ -201,8 +196,8 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
         {
             // Arrange
             var teamName = "TestTeam";
-            _testRunner.AddTestIteration(teamName, "Sprint 1", DateTime.Now.AddDays(-14), DateTime.Now);
-            _testRunner.AddTestIteration(teamName, "Sprint 2", DateTime.Now.AddDays(1), DateTime.Now.AddDays(15));
+            AddTestIteration(teamName, "Sprint 1", DateTime.Now.AddDays(-14), DateTime.Now);
+            AddTestIteration(teamName, "Sprint 2", DateTime.Now.AddDays(1), DateTime.Now.AddDays(15));
 
             var script = $@"
                 Logger.Information(""Querying team iterations..."");
@@ -212,12 +207,14 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                 
                 foreach (var iteration in iterations)
                 {{
-                    Logger.Information($""Iteration: {{iteration.Name}} ({{iteration.StartDate:yyyy-MM-dd}} to {{iteration.EndDate:yyyy-MM-dd}})"");
+                    var startDate = iteration.StartDate?.ToString(""yyyy-MM-dd"") ?? ""Unknown"";
+                    var endDate = iteration.EndDate?.ToString(""yyyy-MM-dd"") ?? ""Unknown"";
+                    Logger.Information($""Iteration: {{iteration.Name}} ({{startDate}} to {{endDate}})"");
                 }}
             ";
 
             // Act
-            var result = await _testRunner.ExecuteScriptAsync(script);
+            var result = await ExecuteScriptAsync(script);
 
             // Assert
             result.ShouldBeSuccessful();
@@ -234,7 +231,8 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             var scriptContent = @"
                 Logger.Information(""Script loaded from file!"");
                 var user = await Client.WhoAmI();
-                Logger.Information($""User: {user?.Identity?.DisplayName}"");
+                var displayName = user?.Identity?.DisplayName ?? ""Unknown"";
+                Logger.Information($""User: {displayName}"");
             ";
             
             var tempFile = Path.GetTempFileName();
@@ -243,7 +241,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             try
             {
                 // Act
-                var result = await _testRunner.ExecuteScriptFromFileAsync(tempFile);
+                var result = await ExecuteScriptFromFileAsync(tempFile);
 
                 // Assert
                 result.ShouldBeSuccessful();
@@ -256,11 +254,6 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                 if (File.Exists(tempFile))
                     File.Delete(tempFile);
             }
-        }
-
-        public void Dispose()
-        {
-            _testRunner?.Dispose();
         }
     }
 }

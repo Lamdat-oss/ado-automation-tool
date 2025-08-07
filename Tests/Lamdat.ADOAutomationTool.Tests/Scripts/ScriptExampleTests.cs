@@ -17,7 +17,8 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
             var script = @"
                 Logger.Information($""Processing work item: {Self.Id}"");
                 Logger.Information($""Event type: {EventType}"");
-                Logger.Information($""Work item title: {Self.GetField<string>(""""System.Title"""")}"");
+                var title = Self.GetField<string>(""System.Title"");
+                Logger.Information($""Work item title: {title}"");
             ";
 
             // Act
@@ -144,8 +145,8 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
                 
                 foreach (var story in childStories)
                 {
-                    Logger.Information($""Child story: {story.Id} - {story.GetField<string>(""""System.Title"""")}"");
-// ??                Logger.Information($""Child story: {story.Id} - {story.Fields[""System.Title"" colocar aqui})}"");
+                    var title = story.GetField<string>(""System.Title"");
+                    Logger.Information($""Child story: {story.Id} - {title}"");
                 }
             ";
 
@@ -307,7 +308,8 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
             var workItem = CreateTestWorkItem("Bug", "File Bug", "New");
             var scriptContent = @"
                 Logger.Information(""Script loaded from file"");
-                Logger.Information($""Processing work item {Self.Id}: {Self.GetField<string>(""""System.Title"""")}"");
+                var title = Self.GetField<string>(""System.Title"");
+                Logger.Information($""Processing work item {Self.Id}: {title}"");
                 Self.SetField(""Custom.ProcessedFromFile"", true);
                 Logger.Information(""File script processing completed"");
             ";

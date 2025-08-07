@@ -174,6 +174,9 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
                 }
             };
 
+            // Ensure the client's project is set
+            context.Client.Project = project;
+
             return context;
         }
 

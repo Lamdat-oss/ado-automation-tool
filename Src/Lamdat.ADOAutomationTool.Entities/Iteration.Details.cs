@@ -20,14 +20,29 @@ namespace Lamdat.ADOAutomationTool.Entities
         [JsonProperty("url")]
         public string Url { get; set; }
 
-        [JsonProperty("teamName")]
+        // Additional properties for testing support
         public string TeamName { get; set; }
-
-        [JsonProperty("startDate")]
-        public DateTime? StartDate { get; set; }
-
-        [JsonProperty("endDate")]
-        public DateTime? EndDate { get; set; }
+        
+        // Convenience properties that delegate to Attributes
+        public DateTime? StartDate 
+        { 
+            get => Attributes?.StartDate; 
+            set 
+            { 
+                if (Attributes == null) Attributes = new IterationAttributes();
+                Attributes.StartDate = value;
+            }
+        }
+        
+        public DateTime? EndDate 
+        { 
+            get => Attributes?.FinishDate; 
+            set 
+            { 
+                if (Attributes == null) Attributes = new IterationAttributes();
+                Attributes.FinishDate = value;
+            }
+        }
     }
 
     public class IterationAttributes
