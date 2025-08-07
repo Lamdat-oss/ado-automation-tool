@@ -16,7 +16,12 @@ namespace Lamdat.ADOAutomationTool.Entities
         /// Name of link type
         /// </summary>
         public string LinkType { get; set; }
-        
+
+        /// <summary>
+        /// 
+        /// </summary>
+        public string Wiql { get; set; }
+
         /// <summary>
         /// Linked entity type
         /// </summary>
