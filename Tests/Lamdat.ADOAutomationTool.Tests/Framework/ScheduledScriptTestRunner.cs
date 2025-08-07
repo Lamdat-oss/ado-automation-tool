@@ -144,7 +144,7 @@ public async Task Run(IAzureDevOpsClient Client, ILogger Logger, CancellationTok
         {
             if (!_disposed && disposing)
             {
-                //_logger?.Dispose();
+                // ILogger doesn't need disposal in our test setup
                 _disposed = true;
             }
         }

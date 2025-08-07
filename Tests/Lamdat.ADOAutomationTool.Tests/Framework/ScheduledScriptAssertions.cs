@@ -43,7 +43,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
         }
 
         /// <summary>
-        /// Assert that the test result was successful
+        /// Assert that the scheduled script test result was successful
         /// </summary>
         public static void ShouldBeSuccessful(this ScheduledScriptTestResult result)
         {
@@ -53,7 +53,17 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
         }
 
         /// <summary>
-        /// Assert that the test result failed with an exception
+        /// Assert that the webhook script test result was successful
+        /// </summary>
+        public static void ShouldBeSuccessful(this ScriptTestResult result)
+        {
+            result.Should().NotBeNull();
+            result.Success.Should().BeTrue(because: $"Script should execute successfully. Error: {result.ErrorMessage}");
+            result.Exception.Should().BeNull();
+        }
+
+        /// <summary>
+        /// Assert that the scheduled script test result failed with an exception
         /// </summary>
         public static void ShouldFail(this ScheduledScriptTestResult result)
         {
@@ -63,7 +73,17 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
         }
 
         /// <summary>
-        /// Assert that the test result failed with a specific exception type
+        /// Assert that the webhook script test result failed with an exception
+        /// </summary>
+        public static void ShouldFail(this ScriptTestResult result)
+        {
+            result.Should().NotBeNull();
+            result.Success.Should().BeFalse();
+            result.Exception.Should().NotBeNull();
+        }
+
+        /// <summary>
+        /// Assert that the scheduled script test result failed with a specific exception type
         /// </summary>
         public static void ShouldFailWith<T>(this ScheduledScriptTestResult result) where T : Exception
         {
@@ -72,7 +92,16 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
         }
 
         /// <summary>
-        /// Assert that the test result contains a specific log message
+        /// Assert that the webhook script test result failed with a specific exception type
+        /// </summary>
+        public static void ShouldFailWith<T>(this ScriptTestResult result) where T : Exception
+        {
+            result.ShouldFail();
+            result.Exception.Should().BeOfType<T>();
+        }
+
+        /// <summary>
+        /// Assert that the scheduled script test result contains a specific log message
         /// </summary>
         public static void ShouldHaveLogMessage(this ScheduledScriptTestResult result, string expectedMessage)
         {
@@ -82,7 +111,17 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
         }
 
         /// <summary>
-        /// Assert that the test result contains a log message with specific substring
+        /// Assert that the webhook script test result contains a specific log message
+        /// </summary>
+        public static void ShouldHaveLogMessage(this ScriptTestResult result, string expectedMessage)
+        {
+            result.Should().NotBeNull();
+            result.HasLogMessage(expectedMessage).Should().BeTrue(
+                because: $"Log should contain message: '{expectedMessage}'. Actual logs: {string.Join(", ", result.LogMessages)}");
+        }
+
+        /// <summary>
+        /// Assert that the scheduled script test result contains a log message with specific substring
         /// </summary>
         public static void ShouldHaveLogMessageContaining(this ScheduledScriptTestResult result, string substring)
         {
@@ -92,9 +131,28 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
         }
 
         /// <summary>
-        /// Assert that execution time is within expected bounds
+        /// Assert that the webhook script test result contains a log message with specific substring
+        /// </summary>
+        public static void ShouldHaveLogMessageContaining(this ScriptTestResult result, string substring)
+        {
+            result.Should().NotBeNull();
+            result.HasLogMessageContaining(substring).Should().BeTrue(
+                because: $"Log should contain substring: '{substring}'. Actual logs: {string.Join(", ", result.LogMessages)}");
+        }
+
+        /// <summary>
+        /// Assert that scheduled script execution time is within expected bounds
         /// </summary>
         public static void ShouldExecuteWithin(this ScheduledScriptTestResult result, TimeSpan maxDuration)
+        {
+            result.Should().NotBeNull();
+            result.ExecutionTime.Should().BeLessOrEqualTo(maxDuration);
+        }
+
+        /// <summary>
+        /// Assert that webhook script execution time is within expected bounds
+        /// </summary>
+        public static void ShouldExecuteWithin(this ScriptTestResult result, TimeSpan maxDuration)
         {
             result.Should().NotBeNull();
             result.ExecutionTime.Should().BeLessOrEqualTo(maxDuration);

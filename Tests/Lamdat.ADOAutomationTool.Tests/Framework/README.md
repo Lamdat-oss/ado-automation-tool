@@ -1,26 +1,37 @@
-# IScheduledScript Testing Framework
+# IScript and IScheduledScript Testing Framework
 
-This testing framework provides comprehensive tools for testing scheduled scripts in the ADO Automation Tool. It enables you to create, execute, and validate scheduled scripts in an isolated testing environment.
+This testing framework provides comprehensive tools for testing both types of scripts in the ADO Automation Tool:
+- **IScheduledScript** - Scripts that run on a schedule via ScheduledScriptEngine
+- **IScript** - Scripts that run in response to webhook events via CSharpScriptEngine
 
 ## Overview
 
 The testing framework consists of several key components:
 
-1. **MockAzureDevOpsClient** - A mock implementation of `IAzureDevOpsClient` for testing
-2. **ScheduledScriptTestRunner** - The main test runner for executing scripts
-3. **ScheduledScriptTestResult** - Contains the results of script execution
-4. **ScheduledScriptAssertions** - Fluent assertion helpers for validation
-5. **ScheduledScriptTestBase** - Base class to simplify test creation
+### For IScheduledScript Testing:
+1. **ScheduledScriptTestRunner** - Test runner for scheduled scripts
+2. **ScheduledScriptTestResult** - Results of scheduled script execution
+3. **ScheduledScriptTestBase** - Base class for scheduled script tests
+
+### For IScript Testing:
+1. **ScriptTestRunner** - Test runner for webhook/context-based scripts
+2. **ScriptTestResult** - Results of webhook script execution
+3. **ScriptTestBase** - Base class for webhook script tests
+
+### Shared Components:
+1. **MockAzureDevOpsClient** - Mock implementation of `IAzureDevOpsClient`
+2. **ScheduledScriptAssertions** - Fluent assertion helpers for both types
+3. **TestLogSink** - Captures log messages for verification
 
 ## Quick Start
 
-### Basic Test Example
+### IScheduledScript Testing (Scheduled Tasks)
 
 ```csharp
 public class MyScheduledScriptTests : ScheduledScriptTestBase
 {
     [Fact]
-    public async Task MyScript_ShouldCreateWorkItem()
+    public async Task MyScheduledScript_ShouldCreateWorkItem()
     {
         // Arrange
         var script = @"
@@ -29,7 +40,7 @@ public class MyScheduledScriptTests : ScheduledScriptTestBase
             {
                 Fields = new Dictionary<string, object?>
                 {
-                    [""System.Title""] = ""Test Item"",
+                    [""System.Title""] = ""Scheduled Item"",
                     [""System.WorkItemType""] = ""Task"",
                     [""System.State""] = ""New""
                 }
@@ -48,11 +59,42 @@ public class MyScheduledScriptTests : ScheduledScriptTestBase
 }
 ```
 
+### IScript Testing (Webhook Events)
+
+```csharp
+public class MyWebhookScriptTests : ScriptTestBase
+{
+    [Fact]
+    public async Task MyWebhookScript_ShouldUpdateWorkItem()
+    {
+        // Arrange
+        var workItem = CreateTestWorkItem("Bug", "Test Bug", "New");
+        var script = @"
+            Logger.Information($""Processing work item: {Self.Id}"");
+            if (EventType == ""workitem.updated"")
+            {
+                Self.SetField(""System.State"", ""Active"");
+                Logger.Information(""Work item activated"");
+            }
+        ";
+
+        // Act
+        var result = await ExecuteScriptAsync(script, workItem, "workitem.updated");
+
+        // Assert
+        result.ShouldBeSuccessful();
+        result.ShouldHaveLogMessageContaining($"Processing work item: {workItem.Id}");
+        result.ShouldHaveLogMessageContaining("Work item activated");
+        workItem.ShouldHaveState("Active");
+    }
+}
+```
+
 ## Framework Components
 
 ### MockAzureDevOpsClient
 
-The mock client simulates Azure DevOps operations:
+The mock client simulates Azure DevOps operations for both script types:
 
 ```csharp
 // Create test work items
@@ -67,9 +109,9 @@ MockClient.ShouldHaveExecutedQueries(1);
 MockClient.ShouldHaveSavedRelations(0);
 ```
 
-### ScheduledScriptTestRunner
+### ScheduledScriptTestRunner (IScheduledScript)
 
-Execute scripts and capture results:
+Execute scheduled scripts:
 
 ```csharp
 using var testRunner = new ScheduledScriptTestRunner();
@@ -85,7 +127,31 @@ using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 var result = await testRunner.ExecuteScriptAsync(scriptCode, cts.Token);
 ```
 
+### ScriptTestRunner (IScript)
+
+Execute webhook scripts with full context control:
+
+```csharp
+using var testRunner = new ScriptTestRunner();
+
+// Execute with simplified parameters
+var result = await testRunner.ExecuteScriptAsync(scriptCode, workItem, "workitem.updated");
+
+// Execute with full context control
+var context = testRunner.CreateTestContext(workItem, "workitem.created");
+var result = await testRunner.ExecuteScriptAsync(scriptCode, context);
+
+// Execute from file
+var result = await testRunner.ExecuteScriptFromFileAsync("path/to/script.rule", workItem);
+
+// Create specialized contexts
+var stateChangeContext = testRunner.CreateStateChangeContext(workItem, "New", "Active");
+var fieldChangeContext = testRunner.CreateFieldChangeContext(workItem, "System.Title", "Old", "New");
+```
+
 ### Test Results and Assertions
+
+Both result types support the same assertion patterns:
 
 ```csharp
 // Basic success/failure
@@ -109,22 +175,79 @@ workItem.ShouldHaveField("Custom.Field", "Expected Value");
 
 ## Test Patterns
 
-### 1. Work Item Creation Tests
+### 1. Scheduled Script Tests (IScheduledScript)
+
+Scheduled scripts have access to:
+- `Client`: IAzureDevOpsClient
+- `Logger`: ILogger  
+- `cancellationToken`: CancellationToken
+- `ScriptRunId`: string
 
 ```csharp
 [Fact]
-public async Task Script_ShouldCreateWorkItem()
+public async Task ScheduledScript_ShouldCreateReports()
 {
-    var script = CreateWorkItemCreationScript("New Bug", "Bug", "New");
+    // Arrange
+    CreateTestWorkItems(5, "Bug", "Test Bug");
+    
+    var script = @"
+        var queryParams = new QueryLinksByWiqlPrms
+        {
+            Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Bug'""
+        };
+        
+        var bugs = await Client.QuetyLinksByWiql(queryParams);
+        Logger.Information($""Daily report: Found {bugs.Count} bugs"");
+    ";
+    
     var result = await ExecuteScriptAsync(script);
     
     result.ShouldBeSuccessful();
-    MockClient.ShouldHaveSavedWorkItems(1);
-    MockClient.SavedWorkItems.First().ShouldHaveTitle("New Bug");
+    result.ShouldHaveLogMessageContaining("Daily report: Found 5 bugs");
 }
 ```
 
-### 2. Work Item Query Tests
+### 2. Webhook Script Tests (IScript)
+
+Webhook scripts have access to:
+- `Client`: IAzureDevOpsClient
+- `EventType`: string
+- `Logger`: ILogger
+- `Project`: string
+- `RelationChanges`: Relations
+- `Self`: WorkItem (the current work item)
+- `SelfChanges`: Dictionary<string, object>
+- `WebHookResource`: WebHookResourceUpdate
+- `cancellationToken`: CancellationToken
+- `ScriptRunId`: string
+
+```csharp
+[Fact]
+public async Task WebhookScript_ShouldRespondToStateChange()
+{
+    // Arrange
+    var workItem = CreateTestWorkItem("Task", "Test Task", "Active");
+    var context = CreateStateChangeContext(workItem, "New", "Active");
+    
+    var script = @"
+        if (SelfChanges.ContainsKey(""System.State""))
+        {
+            Logger.Information(""State change detected"");
+            Self.SetField(""Custom.StateChanged"", DateTime.UtcNow);
+        }
+    ";
+    
+    var result = await ExecuteScriptAsync(script, context);
+    
+    result.ShouldBeSuccessful();
+    result.ShouldHaveLogMessageContaining("State change detected");
+    workItem.Fields.Should().ContainKey("Custom.StateChanged");
+}
+```
+
+### 3. Work Item Query Tests
+
+Both script types can query work items using WIQL:
 
 ```csharp
 [Fact]
@@ -133,64 +256,25 @@ public async Task Script_ShouldQueryWorkItems()
     // Arrange
     CreateTestWorkItems(3, "Bug", "Test Bug");
     
-    var script = CreateWorkItemQueryScript("Bug");
-    var result = await ExecuteScriptAsync(script);
-    
-    result.ShouldBeSuccessful();
-    result.ShouldHaveLogMessageContaining("Found 3 Bug items");
-    MockClient.ShouldHaveExecutedQueries(1);
-}
-```
-
-### 3. Work Item Update Tests
-
-```csharp
-[Fact]
-public async Task Script_ShouldUpdateWorkItem()
-{
-    // Arrange
-    var workItem = CreateTestWorkItem("Task", "Original Title", "New");
-    
-    var script = CreateWorkItemUpdateScript(workItem.Id, "Updated Title", "Active");
-    var result = await ExecuteScriptAsync(script);
-    
-    result.ShouldBeSuccessful();
-    MockClient.ShouldHaveSavedWorkItems(1);
-    MockClient.SavedWorkItems.First().ShouldHaveTitle("Updated Title");
-}
-```
-
-### 4. Bulk Processing Tests
-
-```csharp
-[Fact]
-public async Task Script_ShouldProcessBulkItems()
-{
-    // Arrange
-    CreateTestWorkItems(10, "Task", "Bulk Task");
-    
     var script = @"
         var queryParams = new QueryLinksByWiqlPrms
         {
-            Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Task'""
+            Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Bug'""
         };
         
-        var tasks = await Client.QuetyLinksByWiql(queryParams);
-        foreach (var task in tasks)
-        {
-            task.SetField(""System.State"", ""Active"");
-            await Client.SaveWorkItem(task);
-        }
+        var bugs = await Client.QuetyLinksByWiql(queryParams);
+        Logger.Information($""Found {bugs.Count} bugs"");
     ";
     
     var result = await ExecuteScriptAsync(script);
     
     result.ShouldBeSuccessful();
-    MockClient.ShouldHaveSavedWorkItems(10);
+    result.ShouldHaveLogMessageContaining("Found 3 bugs");
+    MockClient.ShouldHaveExecutedQueries(1);
 }
 ```
 
-### 5. Error Handling Tests
+### 4. Error Handling Tests
 
 ```csharp
 [Fact]
@@ -214,120 +298,116 @@ public async Task Script_ShouldHandleErrors()
 }
 ```
 
-### 6. Cancellation Tests
+### 5. Event-Specific Tests
+
+Test how scripts respond to different event types:
 
 ```csharp
 [Fact]
-public async Task Script_ShouldRespectCancellation()
+public async Task Script_ShouldProcessCreationEvent()
 {
+    var workItem = CreateTestWorkItem("Feature", "New Feature", "New");
+    var context = CreateWorkItemCreatedContext(workItem);
+    
     var script = @"
-        for (int i = 0; i < 1000; i++)
+        if (EventType == ""workitem.created"")
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            await Task.Delay(1, cancellationToken);
+            Logger.Information(""New work item created"");
+            Self.SetField(""Custom.CreatedByScript"", true);
         }
     ";
     
-    using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
-    var result = await ExecuteScriptAsync(script, cts.Token);
+    var result = await ExecuteScriptAsync(script, context);
     
-    result.ShouldFailWith<OperationCanceledException>();
+    result.ShouldBeSuccessful();
+    result.ShouldHaveLogMessageContaining("New work item created");
+    workItem.ShouldHaveField("Custom.CreatedByScript", true);
 }
 ```
 
-### 7. Iteration-Based Tests
+### 6. Context-Specific Tests
+
+Test scripts with specific context scenarios:
 
 ```csharp
 [Fact]
-public async Task Script_ShouldProcessCurrentSprint()
+public async Task Script_ShouldProcessFieldChanges()
 {
-    // Arrange
-    AddCurrentSprint("MyTeam", "Current Sprint");
+    var workItem = CreateTestWorkItem("Bug", "Test Bug", "New");
+    var context = CreateFieldChangeContext(workItem, "System.Title", "Old Title", "New Title");
     
     var script = @"
-        var iterations = await Client.GetAllTeamIterations(""MyTeam"");
-        var current = iterations.FirstOrDefault(i => 
-            i.StartDate <= DateTime.Now && i.EndDate >= DateTime.Now);
-        
-        Logger.Information($""Current iteration: {current?.Name}"");
+        if (SelfChanges.ContainsKey(""System.Title""))
+        {
+            Logger.Information(""Title changed"");
+            Self.SetField(""Custom.TitleChangeProcessed"", true);
+        }
     ";
     
-    var result = await ExecuteScriptAsync(script);
+    var result = await ExecuteScriptAsync(script, context);
     
     result.ShouldBeSuccessful();
-    result.ShouldHaveLogMessageContaining("Current iteration: Current Sprint");
+    result.ShouldHaveLogMessageContaining("Title changed");
+    workItem.ShouldHaveField("Custom.TitleChangeProcessed", true);
 }
 ```
 
 ## Best Practices
 
-### 1. Use Base Classes
-Inherit from `ScheduledScriptTestBase` for common functionality:
+### 1. Use Appropriate Base Classes
+- Inherit from `ScheduledScriptTestBase` for scheduled script tests
+- Inherit from `ScriptTestBase` for webhook script tests
+
+### 2. Test Real Script Files
+Test actual script files from your directories:
 
 ```csharp
-public class MyScriptTests : ScheduledScriptTestBase
-{
-    // Tests here have access to TestRunner, MockClient, and helper methods
-}
-```
-
-### 2. Setup and Cleanup
-Use proper setup and cleanup:
-
-```csharp
+// Scheduled scripts
 [Fact]
-public async Task MyTest()
-{
-    // Arrange
-    ClearTestData(); // Start with clean state
-    var workItems = CreateTestWorkItems(5);
-    
-    // Act & Assert
-    // ... test logic
-}
-```
-
-### 3. Test Real Script Files
-Test actual script files from your scheduled-scripts directory:
-
-```csharp
-[Fact]
-public async Task RealScript_ShouldWork()
+public async Task RealScheduledScript_ShouldWork()
 {
     var result = await ExecuteScriptFromFileAsync("../../../../Src/Lamdat.ADOAutomationTool/scheduled-scripts/my-script.rule");
     result.ShouldBeSuccessful();
 }
+
+// Webhook scripts  
+[Fact]
+public async Task RealWebhookScript_ShouldWork()
+{
+    var workItem = CreateTestWorkItem();
+    var result = await ExecuteScriptFromFileAsync("../../../../Src/Lamdat.ADOAutomationTool/scripts/my-script.rule", workItem);
+    result.ShouldBeSuccessful();
+}
+```
+
+### 3. Test Different Event Types
+For webhook scripts, test various event scenarios:
+
+```csharp
+// Test creation events
+var createContext = CreateWorkItemCreatedContext(workItem);
+
+// Test state changes
+var stateContext = CreateStateChangeContext(workItem, "New", "Active");
+
+// Test field changes
+var fieldContext = CreateFieldChangeContext(workItem, "System.AssignedTo", null, "user@company.com");
 ```
 
 ### 4. Verify Side Effects
-Always verify that your scripts performed the expected operations:
+Always verify that scripts performed expected operations:
 
 ```csharp
-// Verify work item operations
+// Verify work item changes
+workItem.ShouldHaveState("Expected State");
+workItem.ShouldHaveField("Custom.Field", "Expected Value");
+
+// Verify mock client operations
 MockClient.ShouldHaveSavedWorkItems(expectedCount);
 MockClient.ShouldHaveExecutedQueries(expectedCount);
-MockClient.ShouldHaveSavedRelations(expectedCount);
 
-// Verify log output
+// Verify logging
 result.ShouldHaveLogMessageContaining("Expected message");
-
-// Verify work item state
-var workItem = MockClient.SavedWorkItems.First();
-workItem.ShouldHaveState("Expected State");
-```
-
-### 5. Performance Testing
-Test script performance:
-
-```csharp
-[Fact]
-public async Task Script_ShouldCompleteQuickly()
-{
-    var result = await ExecuteScriptAsync(script);
-    
-    result.ShouldBeSuccessful();
-    result.ShouldExecuteWithin(TimeSpan.FromSeconds(5));
-}
 ```
 
 ## Running Tests
@@ -341,24 +421,24 @@ dotnet test
 # Run specific test class
 dotnet test --filter "ClassName=MyScheduledScriptTests"
 
+# Run specific test type
+dotnet test --filter "FullyQualifiedName~ScheduledScripts"
+dotnet test --filter "FullyQualifiedName~Scripts"
+
 # Run tests with verbose output
 dotnet test --logger "console;verbosity=detailed"
 ```
 
-## Debugging Tips
+## Key Differences Between Script Types
 
-1. **Check Log Messages**: Use `result.LogMessages` to see what your script logged
-2. **Examine Mock State**: Inspect `MockClient.SavedWorkItems` and other collections
-3. **Use Breakpoints**: Set breakpoints in your test methods to examine state
-4. **Test Incrementally**: Start with simple scripts and build complexity
+| Feature | IScheduledScript | IScript |
+|---------|------------------|---------|
+| **Trigger** | Timer/Schedule | Webhook Events |
+| **Context** | Minimal (Client, Logger) | Rich (WorkItem, Events, Changes) |
+| **Work Item** | Must query/create | Provided via `Self` |
+| **Event Info** | None | `EventType`, `SelfChanges`, `WebHookResource` |
+| **Base Class** | `ScheduledScriptTestBase` | `ScriptTestBase` |
+| **Result Type** | `ScheduledScriptTestResult` | `ScriptTestResult` |
+| **Use Cases** | Reports, Maintenance, Cleanup | Automation, Validation, Workflows |
 
-## Extending the Framework
-
-You can extend the framework by:
-
-1. Adding new assertion methods to `ScheduledScriptAssertions`
-2. Creating custom mock clients for specific scenarios
-3. Adding helper methods to `ScheduledScriptTestBase`
-4. Creating specialized test result types for complex scenarios
-
-This framework provides a solid foundation for testing all aspects of your scheduled scripts in a controlled, repeatable environment.
+This framework provides comprehensive testing capabilities for both script types, allowing you to thoroughly validate your automation logic in a controlled environment.

@@ -133,7 +133,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             return $@"
                 var queryParams = new QueryLinksByWiqlPrms
                 {{
-                    Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = '{workItemType}'""
+                    Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = '{workItemType}'"",
                 }};
                 
                 var workItems = await Client.QuetyLinksByWiql(queryParams);
@@ -149,7 +149,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
         /// <summary>
         /// Helper to create a script that updates a work item
         /// </summary>
-        protected string CreateWorkItemUpdateScript(int workItemId, string newTitle, string newState = null)
+        protected string CreateWorkItemUpdateScript(int workItemId, string newTitle, string? newState = null)
         {
             var stateUpdate = newState != null ? $@"workItem.SetField(""System.State"", ""{newState}"");" : "";
             
@@ -169,7 +169,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             ";
         }
 
-        public virtual void Dispose()
+        public void Dispose()
         {
             TestRunner?.Dispose();
         }

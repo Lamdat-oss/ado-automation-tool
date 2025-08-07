@@ -41,33 +41,60 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
         public Task<List<WorkItem>> QuetyLinksByWiql(QueryLinksByWiqlPrms queryLinksByWiqlPrms)
         {
             ExecutedQueries.Add(queryLinksByWiqlPrms);
-
+            
             // Simple mock implementation - return matching work items based on query
             var results = new List<WorkItem>();
-            if (queryLinksByWiqlPrms.Wiql.Contains("System.WorkItemType"))
+            if (!string.IsNullOrEmpty(queryLinksByWiqlPrms.Wiql))
             {
-                // Return work items that match the type filter
-                results.AddRange(_workItems.Values.Where(w => queryLinksByWiqlPrms.Wiql.Contains(w.WorkItemType)));
+                // Simple WIQL parsing for testing
+                if (queryLinksByWiqlPrms.Wiql.Contains("System.WorkItemType"))
+                {
+                    // Extract work item type from WIQL query
+                    var wiql = queryLinksByWiqlPrms.Wiql;
+                    var workItemTypes = new[] { "Bug", "Task", "User Story", "Feature" };
+                    
+                    foreach (var type in workItemTypes)
+                    {
+                        if (wiql.Contains($"'{type}'") || wiql.Contains($"\"{type}\""))
+                        {
+                            results.AddRange(_workItems.Values.Where(w => w.WorkItemType == type));
+                        }
+                    }
+                }
+                else
+                {
+                    // Return all work items for general queries
+                    results.AddRange(_workItems.Values);
+                }
             }
             else
             {
-                // Return all work items for general queries
-                results.AddRange(_workItems.Values);
+                // Return linked work items based on source ID and link type
+                var sourceWorkItem = _workItems.Values.FirstOrDefault(w => w.Id == queryLinksByWiqlPrms.SourceWorkItemId);
+                if (sourceWorkItem != null)
+                {
+                    var linkedIds = sourceWorkItem.Relations
+                        .Where(r => string.IsNullOrEmpty(queryLinksByWiqlPrms.LinkType) || r.RelationType == queryLinksByWiqlPrms.LinkType)
+                        .Select(r => r.RelatedWorkItemId)
+                        .ToList();
+                    
+                    results.AddRange(_workItems.Values.Where(w => linkedIds.Contains(w.Id)));
+                }
             }
-
+            
             return Task.FromResult(results);
         }
 
         public Task<bool> SaveWorkItem(WorkItem newWorkItem, bool logErrorOtherwiseWarn = false)
         {
             SavedWorkItems.Add(newWorkItem);
-
+            
             if (newWorkItem.Id == 0)
             {
                 // New work item - assign ID
                 newWorkItem.Id = _nextWorkItemId++;
             }
-
+            
             _workItems.AddOrUpdate(newWorkItem.Id, newWorkItem, (key, existing) => newWorkItem);
             return Task.FromResult(true);
         }
@@ -86,8 +113,8 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
                 Identity = new Identity
                 {
                     DisplayName = "Test User",
-                    AccountName = "testuser@test.com",
-                    EntityId = Guid.NewGuid().ToString(),
+                    MailAddress = "testuser@test.com",
+                    TeamFoundationId = Guid.NewGuid().ToString()
                 }
             });
         }
@@ -106,7 +133,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
                     ["System.TeamProject"] = Project
                 }
             };
-
+            
             _workItems.TryAdd(workItem.Id, workItem);
             return workItem;
         }
@@ -118,7 +145,12 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
                 TeamName = teamName,
                 Name = iterationName,
                 StartDate = startDate,
-                EndDate = endDate
+                EndDate = endDate,
+                Attributes = new IterationAttributes
+                {
+                    StartDate = startDate,
+                    FinishDate = endDate
+                }
             });
         }
 
