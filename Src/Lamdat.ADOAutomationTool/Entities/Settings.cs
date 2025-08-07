@@ -18,6 +18,8 @@
 
         public double MemoryCleanupMinutes { get; set; } = 2;
 
+        public double ScheduledTaskIntervalMinutes { get; set; } = 5;
+
         public RulesStorageType RulesStorageType { get; set; } = RulesStorageType.Disk;
 
         public string? S3BucketName { get; set; }

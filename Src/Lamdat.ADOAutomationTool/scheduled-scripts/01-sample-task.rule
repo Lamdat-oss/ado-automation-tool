@@ -1,0 +1,3 @@
+Logger.Information("My scheduled task is running!");
+   var user = await Client.WhoAmI();
+   // Your automation logic here

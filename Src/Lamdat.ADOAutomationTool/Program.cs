@@ -2,7 +2,6 @@ using Lamdat.ADOAutomationTool.Auth;
 using Lamdat.ADOAutomationTool.Entities;
 using Lamdat.ADOAutomationTool.Service;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
@@ -71,11 +70,17 @@ Log.Logger = new LoggerConfiguration()
 builder.Services.AddSingleton(Log.Logger);
 builder.Services.AddSingleton<WebHookContextQueue>(c => new WebHookContextQueue(Log.Logger, settings));
 builder.Services.AddSingleton<CSharpScriptEngine>(c => new CSharpScriptEngine(Log.Logger));
+builder.Services.AddSingleton<ScheduledScriptEngine>(c => new ScheduledScriptEngine(Log.Logger));
 builder.Services.AddTransient<IContext, Context>();
 builder.Services.AddSingleton<IAzureDevOpsClient, AzureDevOpsClient>(c => new AzureDevOpsClient(Log.Logger, settings.CollectionURL, settings.PAT, settings.BypassRules, settings.NotValidCertificates));
 builder.Services.AddTransient<IS3StorageClient, S3StorageClient>(c => new S3StorageClient(Log.Logger, settings.RulesStorageType, settings.S3StorageRegion, settings.S3Endpoint, settings.S3BucketName, settings.S3SecretKey, settings.S3AccessKey, settings.S3FolderPath)); ;
 builder.Services.AddTransient<IWebHookHandlerService, WebHookHandlerService>();
 builder.Services.AddSingleton<IMemoryCleaner>(m => new MemoryCleaner(Log.Logger, settings.MemoryCleanupMinutes));
+builder.Services.AddSingleton<IScheduledTaskService>(s => new ScheduledTaskService(
+    Log.Logger, 
+    s.GetRequiredService<ScheduledScriptEngine>(), 
+    settings, 
+    s.GetRequiredService<IAzureDevOpsClient>()));
 
 
 builder.Host.UseSerilog();
@@ -90,6 +95,9 @@ var contextRequestProcessingService = new WebHoolsContextQueueProcessorService(
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 var memoryCleaner = app.Services.GetRequiredService<IMemoryCleaner>();
 memoryCleaner.Activate();
+
+var scheduledTaskService = app.Services.GetRequiredService<IScheduledTaskService>();
+scheduledTaskService.Start();
 
 AppDomain.CurrentDomain.UnhandledException += (sender, eventArgs) =>
 {
@@ -145,6 +153,7 @@ if (settings.MaxQueueWebHookRequestCount == 0)
 
 logger.LogInformation($"Max Webhook Queue Count is {settings.MaxQueueWebHookRequestCount}");
 logger.LogInformation($"Script Execution timeout is {settings.ScriptExecutionTimeoutSeconds} seconds");
+logger.LogInformation($"Scheduled Task interval is {settings.ScheduledTaskIntervalMinutes} minutes");
 
 var csScriptEngine = app.Services.GetRequiredService<CSharpScriptEngine>();
 

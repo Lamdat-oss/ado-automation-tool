@@ -210,3 +210,12 @@ public interface IScript
         string ScriptRunId);
 }
 
+public interface IScheduledScript
+{
+    Task Run(
+        IAzureDevOpsClient Client,
+        Serilog.ILogger Logger,       
+        CancellationToken cancellationToken,
+        string ScriptRunId);
+}
+
