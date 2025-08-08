@@ -1,0 +1,17 @@
+// Backward compatible task - uses default interval
+// This script demonstrates backward compatibility with scripts that don't define intervals
+
+Logger.Information("Legacy scheduled task is running!");
+
+var user = await Client.WhoAmI();
+Logger.Information($"Legacy task running as: {user?.Identity?.DisplayName}");
+
+// Your existing automation logic here
+Logger.Information("Legacy task processing...");
+
+// This script doesn't return a ScheduledScriptResult, so it will:
+// 1. Use the old IScheduledScript interface
+// 2. Use the default global interval from configuration
+// 3. Be fully backward compatible with existing scripts
+
+Logger.Information("Legacy task completed successfully");

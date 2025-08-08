@@ -1,3 +1,9 @@
 Logger.Information("My scheduled task is running!");
-   var user = await Client.WhoAmI();
-   // Your automation logic here
+var user = await Client.WhoAmI();
+Logger.Information($"Running as: {user?.Identity?.DisplayName}");
+
+// Your automation logic here
+Logger.Information("Sample task completed successfully");
+
+// Return result with custom interval (2 minutes)
+return ScheduledScriptResult.Success(2, "Sample task executed with 2-minute interval");

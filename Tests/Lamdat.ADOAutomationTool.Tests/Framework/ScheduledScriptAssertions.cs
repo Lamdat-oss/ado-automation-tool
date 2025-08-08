@@ -1,4 +1,5 @@
 using Lamdat.ADOAutomationTool.Entities;
+using Lamdat.ADOAutomationTool.ScriptEngine;
 using FluentAssertions;
 
 namespace Lamdat.ADOAutomationTool.Tests.Framework
@@ -156,6 +157,76 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
         {
             result.Should().NotBeNull();
             result.ExecutionTime.Should().BeLessOrEqualTo(maxDuration);
+        }
+
+        /// <summary>
+        /// Assert that the scheduled script is interval-aware
+        /// </summary>
+        public static void ShouldBeIntervalAware(this ScheduledScriptTestResult result)
+        {
+            result.Should().NotBeNull();
+            result.IsIntervalAware.Should().BeTrue("Script should implement IScheduledScriptWithInterval interface");
+            result.ScheduledScriptResult.Should().NotBeNull();
+        }
+
+        /// <summary>
+        /// Assert that the scheduled script is using legacy mode (not interval-aware)
+        /// </summary>
+        public static void ShouldUseLegacyMode(this ScheduledScriptTestResult result)
+        {
+            result.Should().NotBeNull();
+            result.IsIntervalAware.Should().BeFalse("Script should use legacy IScheduledScript interface");
+            result.ScheduledScriptResult.Should().BeNull();
+        }
+
+        /// <summary>
+        /// Assert that the scheduled script returned a specific interval
+        /// </summary>
+        public static void ShouldHaveNextInterval(this ScheduledScriptTestResult result, int expectedMinutes)
+        {
+            result.Should().NotBeNull();
+            result.ShouldBeIntervalAware();
+            result.NextExecutionIntervalMinutes.Should().Be(expectedMinutes);
+        }
+
+        /// <summary>
+        /// Assert that the scheduled script returned a successful result
+        /// </summary>
+        public static void ShouldReturnSuccessfulResult(this ScheduledScriptTestResult result)
+        {
+            result.Should().NotBeNull();
+            result.ShouldBeIntervalAware();
+            result.ScheduledScriptResult!.IsSuccess.Should().BeTrue();
+        }
+
+        /// <summary>
+        /// Assert that the scheduled script returned a failed result
+        /// </summary>
+        public static void ShouldReturnFailedResult(this ScheduledScriptTestResult result)
+        {
+            result.Should().NotBeNull();
+            result.ShouldBeIntervalAware();
+            result.ScheduledScriptResult!.IsSuccess.Should().BeFalse();
+        }
+
+        /// <summary>
+        /// Assert that the scheduled script result has a specific message
+        /// </summary>
+        public static void ShouldHaveResultMessage(this ScheduledScriptTestResult result, string expectedMessage)
+        {
+            result.Should().NotBeNull();
+            result.ShouldBeIntervalAware();
+            result.ScheduledScriptResult!.Message.Should().Be(expectedMessage);
+        }
+
+        /// <summary>
+        /// Assert that the scheduled script result contains a specific message substring
+        /// </summary>
+        public static void ShouldHaveResultMessageContaining(this ScheduledScriptTestResult result, string substring)
+        {
+            result.Should().NotBeNull();
+            result.ShouldBeIntervalAware();
+            result.ScheduledScriptResult!.Message.Should().Contain(substring);
         }
 
         /// <summary>

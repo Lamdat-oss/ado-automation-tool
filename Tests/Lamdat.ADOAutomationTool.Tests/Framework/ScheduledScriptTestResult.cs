@@ -1,3 +1,5 @@
+using Lamdat.ADOAutomationTool.ScriptEngine;
+
 namespace Lamdat.ADOAutomationTool.Tests.Framework
 {
     /// <summary>
@@ -12,6 +14,21 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
         public DateTime EndTime { get; set; }
         public TimeSpan ExecutionTime { get; set; }
         public List<string> LogMessages { get; set; } = new();
+
+        /// <summary>
+        /// The result returned by the script if it implements IScheduledScriptWithInterval
+        /// </summary>
+        public ScheduledScriptResult? ScheduledScriptResult { get; set; }
+
+        /// <summary>
+        /// The next execution interval in minutes if specified by the script
+        /// </summary>
+        public int? NextExecutionIntervalMinutes { get; set; }
+
+        /// <summary>
+        /// Indicates whether this script supports interval-based scheduling
+        /// </summary>
+        public bool IsIntervalAware => ScheduledScriptResult != null;
 
         public bool HasLogMessage(string message)
         {

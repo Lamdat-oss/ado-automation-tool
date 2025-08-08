@@ -1,0 +1,46 @@
+// Smart interval task - adjusts its own interval based on conditions
+// This script demonstrates dynamic interval adjustment
+
+Logger.Information("Starting smart interval task...");
+
+try 
+{
+    var user = await Client.WhoAmI();
+    Logger.Information($"Smart task running as: {user?.Identity?.DisplayName}");
+    
+    // Example: Adjust interval based on time of day
+    var currentHour = DateTime.Now.Hour;
+    int nextInterval;
+    string reason;
+    
+    if (currentHour >= 9 && currentHour <= 17) 
+    {
+        // Business hours: check more frequently
+        nextInterval = 5;
+        reason = "Business hours - checking every 5 minutes";
+    }
+    else if (currentHour >= 18 && currentHour <= 22)
+    {
+        // Evening: moderate frequency
+        nextInterval = 15;
+        reason = "Evening hours - checking every 15 minutes";
+    }
+    else 
+    {
+        // Night time: less frequent
+        nextInterval = 60;
+        reason = "Night hours - checking every hour";
+    }
+    
+    Logger.Information($"Smart task completed. {reason}");
+    
+    // Return success with dynamically calculated interval
+    return ScheduledScriptResult.Success(nextInterval, reason);
+}
+catch (Exception ex)
+{
+    Logger.Error(ex, "Smart interval task failed");
+    
+    // On error, retry more frequently
+    return ScheduledScriptResult.Success(2, $"Task failed, retrying in 2 minutes: {ex.Message}");
+}

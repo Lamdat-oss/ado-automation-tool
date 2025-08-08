@@ -12,6 +12,7 @@ namespace Lamdat.ADOAutomationTool.Service
     /// <summary>
     /// Service for executing scheduled tasks at regular intervals using a timer.
     /// This service executes C# scripts from a designated scheduled-scripts directory.
+    /// Now supports per-script intervals with scripts defining their own execution frequency.
     /// </summary>
     public class ScheduledTaskService : IScheduledTaskService, IDisposable
     {
@@ -36,8 +37,11 @@ namespace Lamdat.ADOAutomationTool.Service
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _azureDevOpsClient = azureDevOpsClient ?? throw new ArgumentNullException(nameof(azureDevOpsClient));
 
-            // Convert minutes to milliseconds
-            var intervalInMilliseconds = _settings.ScheduledTaskIntervalMinutes * 60 * 1000;
+            // Use a more frequent check interval (1 minute) to support fine-grained script intervals
+            // The scripts themselves determine when they should run based on their individual intervals
+            var checkIntervalMinutes = Math.Min(_settings.ScheduledTaskIntervalMinutes, 1.0);
+            var intervalInMilliseconds = checkIntervalMinutes * 60 * 1000;
+            
             _timer = new System.Timers.Timer(intervalInMilliseconds);
             _timer.Elapsed += OnTimedEvent;
             _timer.AutoReset = true;
@@ -51,7 +55,8 @@ namespace Lamdat.ADOAutomationTool.Service
             if (!_timer.Enabled)
             {
                 _timer.Start();
-                _logger.Information($"Scheduled Task Service started. Will execute every {_settings.ScheduledTaskIntervalMinutes} minutes.");
+                _logger.Information($"Scheduled Task Service started. Will check for scripts to execute every {_timer.Interval / 60000:F1} minutes.");
+                _logger.Information("Scripts can now define their own execution intervals. The service will execute scripts when their individual intervals have elapsed.");
             }
         }
 
@@ -75,9 +80,9 @@ namespace Lamdat.ADOAutomationTool.Service
             _isExecuting = true;
             try
             {
-                _logger.Debug($"Scheduled task execution started at {DateTime.Now}");
+                _logger.Debug($"Scheduled task check started at {DateTime.Now}");
                 await ExecuteScheduledTasks();
-                _logger.Debug($"Scheduled task execution completed at {DateTime.Now}");
+                _logger.Debug($"Scheduled task check completed at {DateTime.Now}");
             }
             catch (Exception ex)
             {
@@ -90,8 +95,8 @@ namespace Lamdat.ADOAutomationTool.Service
         }
 
         /// <summary>
-        /// Executes all scheduled scripts from the scheduled-scripts directory.
-        /// Scripts should have .rule extension to be executed.
+        /// Executes scheduled scripts that are due for execution based on their individual intervals.
+        /// Scripts can define their own execution intervals by returning a ScheduledScriptResult.
         /// </summary>
         private async Task ExecuteScheduledTasks()
         {
@@ -112,21 +117,16 @@ namespace Lamdat.ADOAutomationTool.Service
                     return;
                 }
 
-                _logger.Information($"Found {scriptFiles.Length} scheduled scripts to execute.");
-
-                // Create a context for scheduled execution
+                // Create a context for scheduled execution with default interval information
                 var context = CreateScheduledContext();
                 
                 // Execute the scripts using the specialized scheduled script engine
+                // The engine will determine which scripts need to run based on their intervals
                 var result = await _scheduledScriptEngine.ExecuteScheduledScripts(context);
                 
                 if (!string.IsNullOrEmpty(result))
                 {
                     _logger.Warning($"Scheduled script execution returned errors: {result}");
-                }
-                else
-                {
-                    _logger.Information("All scheduled scripts executed successfully.");
                 }
             }
             catch (Exception ex)
@@ -160,6 +160,14 @@ namespace Lamdat.ADOAutomationTool.Service
                 WebHookResource = new WebHookResourceUpdate(),
                 ScriptRunId = Guid.NewGuid().ToString("N")[..8] // Short run ID for scheduled tasks
             };
+        }
+
+        /// <summary>
+        /// Gets information about all scheduled scripts and their next execution times
+        /// </summary>
+        public Dictionary<string, ScheduledScriptInfo> GetScheduleInfo()
+        {
+            return _scheduledScriptEngine.GetScheduleInfo();
         }
 
         public void Dispose()

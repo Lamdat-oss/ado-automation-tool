@@ -47,19 +47,24 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
                 // Clear previous log messages
                 _logMessages.Clear();
 
-                // Build the script wrapper
-                var wrappedScript = WrapScript(scriptCode);
-
-                IScheduledScript script;
-                lock (_lock)
+                // Try to execute as interval-aware script first
+                var intervalResult = await TryExecuteAsIntervalScript(scriptCode, cancellationToken);
+                if (intervalResult != null)
                 {
-                    script = CSScript.Evaluator.LoadMethod<IScheduledScript>(wrappedScript);
+                    // Script executed successfully (no exception), store the result
+                    result.Success = true; // Script execution was successful
+                    result.ScheduledScriptResult = intervalResult;
+                    result.NextExecutionIntervalMinutes = intervalResult.NextExecutionIntervalMinutes;
+                    
+                    // Note: intervalResult.IsSuccess indicates whether the script's business logic succeeded,
+                    // but result.Success indicates whether the script executed without throwing an exception
                 }
-
-                // Execute the script
-                await script.Run(_mockClient, _logger, cancellationToken, Guid.NewGuid().ToString());
-
-                result.Success = true;
+                else
+                {
+                    // Fallback to standard scheduled script execution
+                    await ExecuteAsStandardScript(scriptCode, cancellationToken);
+                    result.Success = true;
+                }
             }
             catch (Exception ex)
             {
@@ -75,6 +80,46 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Try to execute script as an interval-aware script
+        /// </summary>
+        private async Task<ScheduledScriptResult?> TryExecuteAsIntervalScript(string scriptCode, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var wrappedScript = WrapScriptAsInterval(scriptCode);
+
+                IScheduledScriptWithInterval script;
+                lock (_lock)
+                {
+                    script = CSScript.Evaluator.LoadMethod<IScheduledScriptWithInterval>(wrappedScript);
+                }
+
+                return await script.RunWithInterval(_mockClient, _logger, cancellationToken, Guid.NewGuid().ToString());
+            }
+            catch
+            {
+                // Script doesn't implement interval interface, return null to indicate fallback needed
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Execute script as standard scheduled script
+        /// </summary>
+        private async Task ExecuteAsStandardScript(string scriptCode, CancellationToken cancellationToken)
+        {
+            var wrappedScript = WrapScriptAsStandard(scriptCode);
+
+            IScheduledScript script;
+            lock (_lock)
+            {
+                script = CSScript.Evaluator.LoadMethod<IScheduledScript>(wrappedScript);
+            }
+
+            await script.Run(_mockClient, _logger, cancellationToken, Guid.NewGuid().ToString());
         }
 
         /// <summary>
@@ -111,7 +156,31 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
             _logMessages.Clear();
         }
 
-        private string WrapScript(string scriptCode)
+        private string WrapScriptAsInterval(string scriptCode)
+        {
+            var stringBuilder = new StringBuilder();
+            stringBuilder.AppendLine(@"
+using Lamdat.ADOAutomationTool.Entities;
+using Lamdat.ADOAutomationTool.Service;
+using Lamdat.ADOAutomationTool.ScriptEngine;
+using Serilog;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System;
+
+public async Task<ScheduledScriptResult> RunWithInterval(IAzureDevOpsClient Client, ILogger Logger, CancellationToken cancellationToken, string ScriptRunId)
+{");
+            stringBuilder.AppendLine(scriptCode);
+            stringBuilder.AppendLine("}");
+            
+            return stringBuilder.ToString();
+        }
+
+        private string WrapScriptAsStandard(string scriptCode)
         {
             var stringBuilder = new StringBuilder();
             stringBuilder.AppendLine(@"

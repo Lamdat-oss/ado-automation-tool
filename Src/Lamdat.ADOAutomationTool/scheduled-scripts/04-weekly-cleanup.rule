@@ -1,0 +1,33 @@
+// Weekly cleanup task - runs every 7 days (10080 minutes)
+// This script demonstrates a weekly maintenance task
+
+Logger.Information("Starting weekly cleanup task...");
+
+try 
+{
+    var user = await Client.WhoAmI();
+    Logger.Information($"Weekly cleanup running as: {user?.Identity?.DisplayName}");
+    
+    // Example cleanup operations
+    Logger.Information("Performing weekly maintenance tasks...");
+    
+    // You could add cleanup logic for:
+    // - Archiving old work items
+    // - Cleaning up temporary data
+    // - Generating weekly reports
+    // - Database maintenance
+    // - Log file cleanup
+    
+    var itemsProcessed = 0; // Placeholder for actual cleanup count
+    Logger.Information($"Weekly cleanup completed. Processed {itemsProcessed} items.");
+    
+    // Return success with 7-day interval (10080 minutes)
+    return ScheduledScriptResult.Success(10080, "Weekly cleanup scheduled for next 7 days");
+}
+catch (Exception ex)
+{
+    Logger.Error(ex, "Weekly cleanup failed");
+    
+    // For weekly tasks, we might retry in a few hours on failure
+    return ScheduledScriptResult.Success(240, $"Weekly cleanup failed, will retry in 4 hours: {ex.Message}");
+}
