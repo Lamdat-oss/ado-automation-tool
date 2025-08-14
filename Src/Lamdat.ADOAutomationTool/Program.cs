@@ -70,7 +70,7 @@ Log.Logger = new LoggerConfiguration()
 builder.Services.AddSingleton(Log.Logger);
 builder.Services.AddSingleton<WebHookContextQueue>(c => new WebHookContextQueue(Log.Logger, settings));
 builder.Services.AddSingleton<CSharpScriptEngine>(c => new CSharpScriptEngine(Log.Logger));
-builder.Services.AddSingleton<ScheduledScriptEngine>(c => new ScheduledScriptEngine(Log.Logger));
+builder.Services.AddSingleton<ScheduledScriptEngine>(c => new ScheduledScriptEngine(Log.Logger, settings));
 builder.Services.AddTransient<IContext, Context>();
 builder.Services.AddSingleton<IAzureDevOpsClient, AzureDevOpsClient>(c => new AzureDevOpsClient(Log.Logger, settings.CollectionURL, settings.PAT, settings.BypassRules, settings.NotValidCertificates));
 builder.Services.AddTransient<IS3StorageClient, S3StorageClient>(c => new S3StorageClient(Log.Logger, settings.RulesStorageType, settings.S3StorageRegion, settings.S3Endpoint, settings.S3BucketName, settings.S3SecretKey, settings.S3AccessKey, settings.S3FolderPath)); ;

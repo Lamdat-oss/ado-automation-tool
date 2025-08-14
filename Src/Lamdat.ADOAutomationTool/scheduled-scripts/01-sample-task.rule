@@ -1,8 +1,24 @@
 Logger.Information("My scheduled task is running!");
+Logger.Information($"Last run was: {LastRun:yyyy-MM-dd HH:mm:ss}");
+
 var user = await Client.WhoAmI();
 Logger.Information($"Running as: {user?.Identity?.DisplayName}");
 
-// Your automation logic here
+// Example: Process work items created since last run
+var timeSinceLastRun = DateTime.Now - LastRun;
+Logger.Information($"Time since last run: {timeSinceLastRun.TotalMinutes:F1} minutes");
+
+if (timeSinceLastRun.TotalMinutes > 10)
+{
+    Logger.Information("More than 10 minutes since last run - performing full processing");
+    // Your full automation logic here
+}
+else
+{
+    Logger.Information("Recent run - performing quick check only");
+    // Your incremental automation logic here
+}
+
 Logger.Information("Sample task completed successfully");
 
 // Return result with custom interval (2 minutes)

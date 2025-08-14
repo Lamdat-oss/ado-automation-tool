@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using Lamdat.ADOAutomationTool.Entities;
 using csscript;
 using CSScriptLib;
@@ -20,15 +21,17 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
     public class ScheduledScriptEngine
     {
         private readonly Serilog.ILogger _logger;
+        private readonly Lamdat.ADOAutomationTool.Entities.Settings _settings;
         private const int MAX_ATTEMPTS = 3;
         private readonly object _lock = new object();
         
         // Dictionary to track script execution intervals and last run times
         private readonly ConcurrentDictionary<string, ScheduledScriptInfo> _scriptScheduleInfo = new();
 
-        public ScheduledScriptEngine(Serilog.ILogger logger)
+        public ScheduledScriptEngine(Serilog.ILogger logger, Lamdat.ADOAutomationTool.Entities.Settings settings)
         {
             _logger = logger;
+            _settings = settings;
             CSScript.EvaluatorConfig.Engine = EvaluatorEngine.Roslyn;
         }
 
@@ -92,10 +95,11 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                                 scriptCode = await reader.ReadToEndAsync(token);
                             }
 
-                            var result = await ExecuteScript(scriptCode, scriptFile, context, token);
+                            var lastRun = GetLastRunForScript(scriptFile);
+                            var result = await ExecuteScript(scriptCode, scriptFile, context, token, lastRun);
                             
                             // Update the script schedule information based on the result
-                            UpdateScriptScheduleInfo(scriptFile, result, context);
+                            UpdateScriptScheduleInfo(scriptFile, result, context, lastRun);
 
                             succeeded = true;
                         }
@@ -136,6 +140,49 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
         }
 
         /// <summary>
+        /// Gets the last run date for a script, using configuration default for first runs
+        /// </summary>
+        private DateTime GetLastRunForScript(string scriptFile)
+        {
+            if (_scriptScheduleInfo.TryGetValue(scriptFile, out var scheduleInfo))
+            {
+                return scheduleInfo.LastExecuted;
+            }
+
+            // First run - use configured default
+            return GetDefaultLastRunDate();
+        }
+
+        /// <summary>
+        /// Gets the default last run date from configuration
+        /// </summary>
+        private DateTime GetDefaultLastRunDate()
+        {
+            if (string.IsNullOrWhiteSpace(_settings.ScheduledScriptDefaultLastRun))
+            {
+                return DateTime.Now;
+            }
+
+            var defaultLastRunConfig = _settings.ScheduledScriptDefaultLastRun.Trim();
+
+            // Try to parse as ISO date first
+            if (DateTime.TryParse(defaultLastRunConfig, null, DateTimeStyles.RoundtripKind, out var dateTime))
+            {
+                return dateTime;
+            }
+
+            // Try to parse as number of days ago
+            if (int.TryParse(defaultLastRunConfig, out var daysAgo))
+            {
+                return DateTime.Now.AddDays(-Math.Abs(daysAgo));
+            }
+
+            // If parsing fails, log warning and use current time
+            _logger.Warning($"Invalid ScheduledScriptDefaultLastRun configuration: '{defaultLastRunConfig}'. Using current time.");
+            return DateTime.Now;
+        }
+
+        /// <summary>
         /// Determines which scripts should be executed based on their individual intervals
         /// </summary>
         private List<string> GetScriptsToExecute(string[] allScriptFiles, IContext context)
@@ -149,7 +196,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                 {
                     // First time running this script, add it to execute list
                     scriptsToExecute.Add(scriptFile);
-                    _logger.Debug($"First execution for script '{scriptFile}'");
+                    _logger.Debug($"First execution for script '{scriptFile}' (Last run will be: {GetDefaultLastRunDate():yyyy-MM-dd HH:mm:ss})");
                 }
                 else if (scheduleInfo.ShouldExecuteNow)
                 {
@@ -168,7 +215,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
         /// <summary>
         /// Executes a single script and returns the result
         /// </summary>
-        private async Task<ScheduledScriptResult> ExecuteScript(string scriptCode, string scriptFile, IContext context, CancellationToken token)
+        private async Task<ScheduledScriptResult> ExecuteScript(string scriptCode, string scriptFile, IContext context, CancellationToken token, DateTime lastRun)
         {
             // First try to execute as an interval-aware script
             try
@@ -176,7 +223,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                 var intervalScript = await CreateIntervalScript(scriptCode, context, token);
                 if (intervalScript != null)
                 {
-                    return await intervalScript.RunWithInterval(context.Client, context.Logger, token, context.ScriptRunId);
+                    return await intervalScript.RunWithInterval(context.Client, context.Logger, token, context.ScriptRunId, lastRun);
                 }
             }
             catch (Exception ex)
@@ -186,7 +233,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
 
             // Fallback to standard scheduled script execution
             var script = await CreateStandardScript(scriptCode, context, token);
-            await script.Run(context.Client, context.Logger, token, context.ScriptRunId);
+            await script.Run(context.Client, context.Logger, token, context.ScriptRunId, lastRun);
             
             // Return a default success result
             return ScheduledScriptResult.Success();
@@ -212,7 +259,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System;
 
-public async Task<ScheduledScriptResult> RunWithInterval(IAzureDevOpsClient Client, ILogger Logger, CancellationToken cancellationToken, string ScriptRunId)
+public async Task<ScheduledScriptResult> RunWithInterval(IAzureDevOpsClient Client, ILogger Logger, CancellationToken cancellationToken, string ScriptRunId, DateTime LastRun)
 {");
             stringBuilder.AppendLine(scriptCode);
             stringBuilder.AppendLine("}");
@@ -247,7 +294,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System;
 
-public async Task Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken cancellationToken, string ScriptRunId)
+public async Task Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken cancellationToken, string ScriptRunId, DateTime LastRun)
 {");
             stringBuilder.AppendLine(scriptCode);
             stringBuilder.AppendLine("}");
@@ -266,25 +313,30 @@ public async Task Run(IAzureDevOpsClient Client, ILogger Logger, CancellationTok
         /// <summary>
         /// Updates the schedule information for a script based on execution result
         /// </summary>
-        private void UpdateScriptScheduleInfo(string scriptFile, ScheduledScriptResult result, IContext context)
+        private void UpdateScriptScheduleInfo(string scriptFile, ScheduledScriptResult result, IContext context, DateTime previousLastRun)
         {
             var intervalMinutes = result.NextExecutionIntervalMinutes ?? GetDefaultIntervalMinutes(context);
+            var currentTime = DateTime.Now;
             
             _scriptScheduleInfo.AddOrUpdate(scriptFile,
                 new ScheduledScriptInfo
                 {
                     ScriptPath = scriptFile,
-                    LastExecuted = DateTime.Now,
-                    IntervalMinutes = intervalMinutes
+                    LastExecuted = currentTime,
+                    PreviousLastExecuted = previousLastRun,
+                    IntervalMinutes = intervalMinutes,
+                    IsFirstRun = true
                 },
                 (key, existing) =>
                 {
-                    existing.LastExecuted = DateTime.Now;
+                    existing.PreviousLastExecuted = existing.LastExecuted;
+                    existing.LastExecuted = currentTime;
                     existing.IntervalMinutes = intervalMinutes;
+                    existing.IsFirstRun = false;
                     return existing;
                 });
 
-            _logger.Information($"Script '{scriptFile}' completed. Next execution in {intervalMinutes} minutes at {DateTime.Now.AddMinutes(intervalMinutes)}");
+            _logger.Information($"Script '{scriptFile}' completed. Last run: {previousLastRun:yyyy-MM-dd HH:mm:ss}, Next execution in {intervalMinutes} minutes at {currentTime.AddMinutes(intervalMinutes):yyyy-MM-dd HH:mm:ss}");
         }
 
         /// <summary>
@@ -292,9 +344,8 @@ public async Task Run(IAzureDevOpsClient Client, ILogger Logger, CancellationTok
         /// </summary>
         private int GetDefaultIntervalMinutes(IContext context)
         {
-            // Default to 5 minutes - in a full implementation, this could be passed through context
-            // or retrieved from configuration
-            return 5; // Default fallback
+            // Use configured interval from settings
+            return (int)_settings.ScheduledTaskIntervalMinutes;
         }
 
         private void LogExecutionAttempt(IContext context, string scriptFile, int attempts)

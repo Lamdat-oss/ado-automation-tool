@@ -3,7 +3,7 @@ using Lamdat.ADOAutomationTool.ScriptEngine;
 using CSScriptLib;
 using Serilog;
 using System.Text;
-using csscript;
+
 
 namespace Lamdat.ADOAutomationTool.Tests.Framework
 {
@@ -97,7 +97,9 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
                     script = CSScript.Evaluator.LoadMethod<IScheduledScriptWithInterval>(wrappedScript);
                 }
 
-                return await script.RunWithInterval(_mockClient, _logger, cancellationToken, Guid.NewGuid().ToString());
+                // Use a default LastRun for testing (1 hour ago)
+                var testLastRun = DateTime.Now.AddHours(-1);
+                return await script.RunWithInterval(_mockClient, _logger, cancellationToken, Guid.NewGuid().ToString(), testLastRun);
             }
             catch
             {
@@ -119,7 +121,9 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
                 script = CSScript.Evaluator.LoadMethod<IScheduledScript>(wrappedScript);
             }
 
-            await script.Run(_mockClient, _logger, cancellationToken, Guid.NewGuid().ToString());
+            // Use a default LastRun for testing (1 hour ago)
+            var testLastRun = DateTime.Now.AddHours(-1);
+            await script.Run(_mockClient, _logger, cancellationToken, Guid.NewGuid().ToString(), testLastRun);
         }
 
         /// <summary>
@@ -172,7 +176,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System;
 
-public async Task<ScheduledScriptResult> RunWithInterval(IAzureDevOpsClient Client, ILogger Logger, CancellationToken cancellationToken, string ScriptRunId)
+public async Task<ScheduledScriptResult> RunWithInterval(IAzureDevOpsClient Client, ILogger Logger, CancellationToken cancellationToken, string ScriptRunId, DateTime LastRun)
 {");
             stringBuilder.AppendLine(scriptCode);
             stringBuilder.AppendLine("}");
@@ -195,7 +199,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System;
 
-public async Task Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken cancellationToken, string ScriptRunId)
+public async Task Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken cancellationToken, string ScriptRunId, DateTime LastRun)
 {");
             stringBuilder.AppendLine(scriptCode);
             stringBuilder.AppendLine("}");

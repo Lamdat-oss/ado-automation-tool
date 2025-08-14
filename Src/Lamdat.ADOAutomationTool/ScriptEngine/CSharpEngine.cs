@@ -215,7 +215,8 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
             IAzureDevOpsClient Client,
             Serilog.ILogger Logger,       
             CancellationToken cancellationToken,
-            string ScriptRunId);
+            string ScriptRunId,
+            DateTime LastRun);
     }
 
     /// <summary>
@@ -227,7 +228,8 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
             IAzureDevOpsClient Client,
             Serilog.ILogger Logger,       
             CancellationToken cancellationToken,
-            string ScriptRunId);
+            string ScriptRunId,
+            DateTime LastRun);
     }
 
     /// <summary>
@@ -284,9 +286,11 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
     {
         public string ScriptPath { get; set; }
         public DateTime LastExecuted { get; set; }
+        public DateTime? PreviousLastExecuted { get; set; }
         public int IntervalMinutes { get; set; }
         public DateTime NextScheduledExecution => LastExecuted.AddMinutes(IntervalMinutes);
         public bool ShouldExecuteNow => DateTime.Now >= NextScheduledExecution;
+        public bool IsFirstRun { get; set; } = true;
     }
 }
 

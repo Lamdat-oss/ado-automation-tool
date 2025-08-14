@@ -1,24 +1,40 @@
 // Weekly cleanup task - runs every 7 days (10080 minutes)
-// This script demonstrates a weekly maintenance task
+// This script demonstrates how to perform cleanup operations based on last run date
 
 Logger.Information("Starting weekly cleanup task...");
+Logger.Information($"Last cleanup was: {LastRun:yyyy-MM-dd HH:mm:ss}");
 
 try 
 {
     var user = await Client.WhoAmI();
     Logger.Information($"Weekly cleanup running as: {user?.Identity?.DisplayName}");
     
-    // Example cleanup operations
     Logger.Information("Performing weekly maintenance tasks...");
     
-    // You could add cleanup logic for:
-    // - Archiving old work items
-    // - Cleaning up temporary data
-    // - Generating weekly reports
-    // - Database maintenance
-    // - Log file cleanup
+    // Example: Clean up old work items that haven't been updated since before last run
+    var cleanupCutoffDate = LastRun.AddDays(-30); // Clean items older than 30 days before last run
+    var cleanupQuery = new QueryLinksByWiqlPrms
+    {
+        Wiql = $@"SELECT [System.Id], [System.Title] 
+                  FROM WorkItems 
+                  WHERE [System.State] = 'Closed' 
+                  AND [System.ChangedDate] < '{cleanupCutoffDate:yyyy-MM-ddTHH:mm:ss.fffZ}' 
+                  ORDER BY [System.ChangedDate]",
+        Top = 100 // Limit cleanup batch size
+    };
     
-    var itemsProcessed = 0; // Placeholder for actual cleanup count
+    var itemsToCleanup = await Client.QuetyLinksByWiql(cleanupQuery);
+    var itemsProcessed = itemsToCleanup.Count;
+    
+    Logger.Information($"Found {itemsProcessed} items for cleanup (closed before {cleanupCutoffDate:yyyy-MM-dd})");
+    
+    // Process cleanup items (example - you would implement actual cleanup logic)
+    foreach (var item in itemsToCleanup)
+    {
+        Logger.Debug($"Processing cleanup for work item {item.Id}: {item.Title}");
+        // Add your cleanup logic here (archive, delete tags, etc.)
+    }
+    
     Logger.Information($"Weekly cleanup completed. Processed {itemsProcessed} items.");
     
     // Return success with 7-day interval (10080 minutes)
@@ -28,6 +44,6 @@ catch (Exception ex)
 {
     Logger.Error(ex, "Weekly cleanup failed");
     
-    // For weekly tasks, we might retry in a few hours on failure
+    // For weekly tasks, retry in a few hours on failure
     return ScheduledScriptResult.Success(240, $"Weekly cleanup failed, will retry in 4 hours: {ex.Message}");
 }
