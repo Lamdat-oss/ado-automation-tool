@@ -1,0 +1,439 @@
+﻿// Hierarchical Work Item Aggregation Task
+// This script aggregates effort data through the Epic > Feature > PBI/Bug > Task hierarchy
+// 1. Bottom-up: Task completed work aggregated to parents (PBI/Bug/Feature/Epic)
+// 2. Top-down: Feature estimation/remaining fields aggregated to Epic
+// Runs every 10 minutes to process work items that have changed since last run
+
+Logger.Information("Starting hierarchical work item aggregation...");
+Logger.Information($"Processing changes since: {LastRun:yyyy-MM-dd HH:mm:ss}");
+
+try 
+{
+    var user = await Client.WhoAmI();
+    Logger.Information($"Aggregation running as: {user?.Identity?.DisplayName}");
+    
+    // Define discipline mappings based on Activity field
+    var disciplineMappings = new Dictionary<string, string>
+    {
+        {"Admin Configuration", "Admin"},
+        {"Ceremonies", "Others"},
+        {"Code Review", "Development"},
+        {"Data Fix", "Development"},
+        {"Demo", "Others"},
+        {"Design", "PO"},
+        {"Development", "Development"},
+        {"DevOps", "Others"},
+        {"General - Personal", "Others"},
+        {"Investigation", "Development"},
+        {"Management", "Others"},
+        {"Permissions", "Admin"},
+        {"Project Management", "Others"},
+        {"Release Upgrade", "Others"},
+        {"Reproduce", "QA"},
+        {"Requirements Meeting", "PO"},
+        {"Support", "Others"},
+        {"Tech Lead", "Development"},
+        {"Technical Debts", "Development"},
+        {"Test Case", "QA"},
+        {"Test Cases Approval", "QA"},
+        {"Testing", "QA"},
+        {"Training", "Others"},
+        {"Triage", "Admin"},
+        {"UX/UI", "Others"}
+    };
+    
+    // Step 1: Find all tasks that have changed since last run (for bottom-up aggregation)
+    var sinceLastRun = LastRun.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+    var changedTasksQuery = new QueryLinksByWiqlPrms
+    {
+        Wiql = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [Microsoft.VSTS.Scheduling.CompletedWork], [Microsoft.VSTS.Common.Activity]
+                  FROM WorkItems 
+                  WHERE [System.WorkItemType] = 'Task' 
+                  AND [System.ChangedDate] >= '{sinceLastRun}' 
+                  AND [Microsoft.VSTS.Scheduling.CompletedWork] IS NOT NULL
+                  ORDER BY [System.ChangedDate]"
+    };
+    
+    var changedTasks = await Client.QuetyLinksByWiql(changedTasksQuery);
+    Logger.Information($"Found {changedTasks.Count} changed tasks with completed work since last run");
+    
+    // Step 2: Find all features that have changed since last run (for top-down aggregation)
+    var changedFeaturesQuery = new QueryLinksByWiqlPrms
+    {
+        Wiql = $@"SELECT [System.Id], [System.Title], [System.WorkItemType]
+                  FROM WorkItems 
+                  WHERE [System.WorkItemType] = 'Feature' 
+                  AND [System.ChangedDate] >= '{sinceLastRun}' 
+                  ORDER BY [System.ChangedDate]"
+    };
+    
+    var changedFeatures = await Client.QuetyLinksByWiql(changedFeaturesQuery);
+    Logger.Information($"Found {changedFeatures.Count} changed features since last run");
+    
+    if (changedTasks.Count == 0 && changedFeatures.Count == 0)
+    {
+        Logger.Information("No tasks or features with changes found - no aggregation needed");
+        return ScheduledScriptResult.Success(10, "No aggregation needed - next check in 10 minutes");
+    }
+    
+    // Initialize aggregation statistics
+    var aggregationStats = new Dictionary<string, int>
+    {
+        ["TasksProcessed"] = 0,
+        ["FeaturesProcessed"] = 0,
+        ["PBIsUpdated"] = 0,
+        ["FeaturesUpdated"] = 0,
+        ["EpicsUpdated"] = 0,
+        ["Errors"] = 0
+    };
+    
+    // Step 3: Process bottom-up aggregation (Tasks → Parents)
+    if (changedTasks.Count > 0)
+    {
+        await ProcessBottomUpAggregation(changedTasks, disciplineMappings, aggregationStats, Client);
+    }
+    
+    // Step 4: Process top-down aggregation (Features → Epics)
+    if (changedFeatures.Count > 0)
+    {
+        await ProcessTopDownAggregation(changedFeatures, aggregationStats, Client);
+    }
+    
+    // Step 5: Process any additional Epic aggregations needed from changed Features
+    var affectedEpics = new HashSet<int>();
+    foreach (var feature in changedFeatures)
+    {
+        var epicParents = await GetEpicParents(feature.Id, Client);
+        foreach (var epic in epicParents)
+        {
+            affectedEpics.Add(epic.Id);
+        }
+    }
+    
+    foreach (var epicId in affectedEpics)
+    {
+        try
+        {
+            await ProcessEpicEstimationAggregation(epicId, Client);
+            aggregationStats["EpicsUpdated"]++;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning($"Error processing Epic {epicId} estimation aggregation: {ex.Message}");
+            aggregationStats["Errors"]++;
+        }
+    }
+    
+    // Log aggregation results
+    Logger.Information($"Hierarchical aggregation completed:");
+    Logger.Information($"  - Tasks processed: {aggregationStats["TasksProcessed"]}");
+    Logger.Information($"  - Features processed: {aggregationStats["FeaturesProcessed"]}");
+    Logger.Information($"  - PBIs/Bugs updated: {aggregationStats["PBIsUpdated"]}"); 
+    Logger.Information($"  - Features updated: {aggregationStats["FeaturesUpdated"]}");
+    Logger.Information($"  - Epics updated: {aggregationStats["EpicsUpdated"]}");
+    Logger.Information($"  - Errors: {aggregationStats["Errors"]}");
+    
+    var message = $"Processed {changedTasks.Count} tasks + {changedFeatures.Count} features, updated {aggregationStats["PBIsUpdated"] + aggregationStats["FeaturesUpdated"] + aggregationStats["EpicsUpdated"]} work items";
+    return ScheduledScriptResult.Success(10, message);
+}
+catch (Exception ex)
+{
+    Logger.Error(ex, "Hierarchical aggregation failed");
+    return ScheduledScriptResult.Success(5, $"Aggregation failed, will retry in 5 minutes: {ex.Message}");
+}
+
+// Process bottom-up aggregation from Tasks to parent work items
+async Task ProcessBottomUpAggregation(List<WorkItem> changedTasks, Dictionary<string, string> disciplineMappings, Dictionary<string, int> stats, IAzureDevOpsClient client)
+{
+    var affectedParents = new HashSet<int>();
+    
+    foreach (var task in changedTasks)
+    {
+        // Get parent relationships for this task
+        var parentQuery = new QueryLinksByWiqlPrms
+        {
+            Wiql = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                      FROM WorkItemLinks
+                      WHERE [Source].[System.Id] = {task.Id}
+                      AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
+                      AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Feature', 'Epic')"
+        };
+        
+        var parents = await client.QuetyLinksByWiql(parentQuery);
+        foreach (var parent in parents)
+        {
+            affectedParents.Add(parent.Id);
+        }
+    }
+    
+    Logger.Information($"Found {affectedParents.Count} parent work items affected by task changes");
+    
+    foreach (var parentId in affectedParents)
+    {
+        try
+        {
+            var parentWorkItem = await client.GetWorkItem(parentId);
+            if (parentWorkItem == null) continue;
+            
+            Logger.Debug($"Processing completed work aggregation for {parentWorkItem.WorkItemType} {parentId}: {parentWorkItem.Title}");
+            
+            // Calculate aggregated completed work values for this parent
+            var aggregatedData = await CalculateCompletedWorkAggregation(parentWorkItem, disciplineMappings, client);
+            
+            // Update parent work item with aggregated completed work values
+            await UpdateWorkItemWithCompletedWorkAggregation(parentWorkItem, aggregatedData, client);
+            
+            // Update statistics
+            switch (parentWorkItem.WorkItemType)
+            {
+                case "Product Backlog Item":
+                case "Bug":
+                    stats["PBIsUpdated"]++;
+                    break;
+                case "Feature":
+                    stats["FeaturesUpdated"]++;
+                    break;
+                case "Epic":
+                    stats["EpicsUpdated"]++;
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning($"Error processing parent {parentId} completed work aggregation: {ex.Message}");
+            stats["Errors"]++;
+        }
+    }
+    
+    stats["TasksProcessed"] = changedTasks.Count;
+}
+
+// Process top-down aggregation from Features to Epics
+async Task ProcessTopDownAggregation(List<WorkItem> changedFeatures, Dictionary<string, int> stats, IAzureDevOpsClient client)
+{
+    var affectedEpics = new HashSet<int>();
+    
+    foreach (var feature in changedFeatures)
+    {
+        try
+        {
+            Logger.Debug($"Processing feature {feature.Id}: {feature.Title}");
+            
+            // Get Epic parents for this Feature
+            var epicParents = await GetEpicParents(feature.Id, client);
+            foreach (var epic in epicParents)
+            {
+                affectedEpics.Add(epic.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning($"Error processing feature {feature.Id}: {ex.Message}");
+            stats["Errors"]++;
+        }
+    }
+    
+    Logger.Information($"Found {affectedEpics.Count} epic work items affected by feature changes");
+    
+    foreach (var epicId in affectedEpics)
+    {
+        try
+        {
+            await ProcessEpicEstimationAggregation(epicId, client);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning($"Error processing epic {epicId} estimation aggregation: {ex.Message}");
+            stats["Errors"]++;
+        }
+    }
+    
+    stats["FeaturesProcessed"] = changedFeatures.Count;
+}
+
+// Get Epic parents for a given work item
+async Task<List<WorkItem>> GetEpicParents(int workItemId, IAzureDevOpsClient client)
+{
+    var epicQuery = new QueryLinksByWiqlPrms
+    {
+        Wiql = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                  FROM WorkItemLinks
+                  WHERE [Source].[System.Id] = {workItemId}
+                  AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
+                  AND [Target].[System.WorkItemType] = 'Epic'"
+    };
+    
+    return await client.QuetyLinksByWiql(epicQuery);
+}
+
+// Calculate aggregated completed work data for a work item from its child tasks
+async Task<Dictionary<string, double>> CalculateCompletedWorkAggregation(WorkItem parentItem, Dictionary<string, string> disciplineMappings, IAzureDevOpsClient client)
+{
+    var aggregatedData = new Dictionary<string, double>
+    {
+        ["TotalCompletedWork"] = 0,
+        ["DevelopmentCompletedWork"] = 0,
+        ["QACompletedWork"] = 0,
+        ["POCompletedWork"] = 0,
+        ["AdminCompletedWork"] = 0,
+        ["OthersCompletedWork"] = 0
+    };
+    
+    // Get all child tasks for this work item
+    var childTasksQuery = new QueryLinksByWiqlPrms
+    {
+        Wiql = $@"SELECT [Target].[System.Id], [Target].[Microsoft.VSTS.Scheduling.CompletedWork], [Target].[Microsoft.VSTS.Common.Activity]
+                  FROM WorkItemLinks
+                  WHERE [Source].[System.Id] = {parentItem.Id}
+                  AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
+                  AND [Target].[System.WorkItemType] = 'Task'"
+    };
+    
+    var childTasks = await client.QuetyLinksByWiql(childTasksQuery);
+    
+    foreach (var task in childTasks)
+    {
+        var completedWork = task.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
+        var activity = task.GetField<string>("Microsoft.VSTS.Common.Activity") ?? "";
+        
+        if (completedWork > 0)
+        {
+            aggregatedData["TotalCompletedWork"] += completedWork;
+            
+            // Map activity to discipline
+            if (disciplineMappings.TryGetValue(activity, out var discipline))
+            {
+                switch (discipline)
+                {
+                    case "Development":
+                        aggregatedData["DevelopmentCompletedWork"] += completedWork;
+                        break;
+                    case "QA":
+                        aggregatedData["QACompletedWork"] += completedWork;
+                        break;
+                    case "PO":
+                        aggregatedData["POCompletedWork"] += completedWork;
+                        break;
+                    case "Admin":
+                        aggregatedData["AdminCompletedWork"] += completedWork;
+                        break;
+                    case "Others":
+                        aggregatedData["OthersCompletedWork"] += completedWork;
+                        break;
+                }
+            }
+            else
+            {
+                // Unknown activity goes to Others
+                aggregatedData["OthersCompletedWork"] += completedWork;
+            }
+        }
+    }
+    
+    return aggregatedData;
+}
+
+// Update work item with aggregated completed work values
+async Task UpdateWorkItemWithCompletedWorkAggregation(WorkItem workItem, Dictionary<string, double> aggregatedData, IAzureDevOpsClient client)
+{
+    // Update custom fields with aggregated completed work values
+    workItem.SetField("Custom.Aggregation.TotalCompletedWork", aggregatedData["TotalCompletedWork"]);
+    workItem.SetField("Custom.Aggregation.DevelopmentCompletedWork", aggregatedData["DevelopmentCompletedWork"]);
+    workItem.SetField("Custom.Aggregation.QACompletedWork", aggregatedData["QACompletedWork"]);
+    workItem.SetField("Custom.Aggregation.POCompletedWork", aggregatedData["POCompletedWork"]);
+    workItem.SetField("Custom.Aggregation.AdminCompletedWork", aggregatedData["AdminCompletedWork"]);
+    workItem.SetField("Custom.Aggregation.OthersCompletedWork", aggregatedData["OthersCompletedWork"]);
+    workItem.SetField("Custom.Aggregation.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
+    
+    await client.SaveWorkItem(workItem);
+    
+    Logger.Debug($"Updated {workItem.WorkItemType} {workItem.Id} completed work - Total: {aggregatedData["TotalCompletedWork"]}, Dev: {aggregatedData["DevelopmentCompletedWork"]}, QA: {aggregatedData["QACompletedWork"]}");
+}
+
+// Process Epic estimation and remaining work aggregation from Features
+async Task ProcessEpicEstimationAggregation(int epicId, IAzureDevOpsClient client)
+{
+    var epicWorkItem = await client.GetWorkItem(epicId);
+    if (epicWorkItem == null) return;
+    
+    Logger.Debug($"Aggregating estimation fields for Epic {epicId}: {epicWorkItem.Title}");
+    
+    // Get all child Features for this Epic
+    var childFeaturesQuery = new QueryLinksByWiqlPrms
+    {
+        Wiql = $@"SELECT [Target].[System.Id]
+                  FROM WorkItemLinks
+                  WHERE [Source].[System.Id] = {epicId}
+                  AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
+                  AND [Target].[System.WorkItemType] = 'Feature'"
+    };
+    
+    var childFeatures = await client.QuetyLinksByWiql(childFeaturesQuery);
+    
+    // Initialize aggregation totals for estimation fields
+    var estimationTotals = new Dictionary<string, double>
+    {
+        ["TotalEffortEstimation"] = 0,
+        ["DevelopmentEffortEstimation"] = 0,
+        ["QAEffortEstimation"] = 0,
+        ["POEffortEstimation"] = 0,
+        ["AdminEffortEstimation"] = 0,
+        ["OthersEffortEstimation"] = 0
+    };
+    
+    // Initialize aggregation totals for remaining fields
+    var remainingTotals = new Dictionary<string, double>
+    {
+        ["TotalRemainingEstimation"] = 0,
+        ["DevelopmentRemainingEstimation"] = 0,
+        ["QARemainingEstimation"] = 0,
+        ["PORemainingEstimation"] = 0,
+        ["AdminRemainingEstimation"] = 0,
+        ["OthersRemainingEstimation"] = 0
+    };
+    
+    foreach (var feature in childFeatures)
+    {
+        var featureWorkItem = await client.GetWorkItem(feature.Id);
+        if (featureWorkItem == null) continue;
+        
+        // Aggregate estimation fields from Feature
+        estimationTotals["TotalEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.Estimation.TotalEffortEstimation") ?? 0;
+        estimationTotals["DevelopmentEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.Estimation.DevelopmentEffortEstimation") ?? 0;
+        estimationTotals["QAEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.Estimation.QAEffortEstimation") ?? 0;
+        estimationTotals["POEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.Estimation.POEffortEstimation") ?? 0;
+        estimationTotals["AdminEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.Estimation.AdminEffortEstimation") ?? 0;
+        estimationTotals["OthersEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.Estimation.OthersEffortEstimation") ?? 0;
+        
+        // Aggregate remaining fields from Feature
+        remainingTotals["TotalRemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.Remaining.TotalRemainingEstimation") ?? 0;
+        remainingTotals["DevelopmentRemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.Remaining.DevelopmentRemainingEstimation") ?? 0;
+        remainingTotals["QARemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.Remaining.QARemainingEstimation") ?? 0;
+        remainingTotals["PORemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.Remaining.PORemainingEstimation") ?? 0;
+        remainingTotals["AdminRemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.Remaining.AdminRemainingEstimation") ?? 0;
+        remainingTotals["OthersRemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.Remaining.OthersRemainingEstimation") ?? 0;
+    }
+    
+    // Update Epic with aggregated estimation values
+    epicWorkItem.SetField("Custom.Estimation.TotalEffortEstimation", estimationTotals["TotalEffortEstimation"]);
+    epicWorkItem.SetField("Custom.Estimation.DevelopmentEffortEstimation", estimationTotals["DevelopmentEffortEstimation"]);
+    epicWorkItem.SetField("Custom.Estimation.QAEffortEstimation", estimationTotals["QAEffortEstimation"]);
+    epicWorkItem.SetField("Custom.Estimation.POEffortEstimation", estimationTotals["POEffortEstimation"]);
+    epicWorkItem.SetField("Custom.Estimation.AdminEffortEstimation", estimationTotals["AdminEffortEstimation"]);
+    epicWorkItem.SetField("Custom.Estimation.OthersEffortEstimation", estimationTotals["OthersEffortEstimation"]);
+    
+    // Update Epic with aggregated remaining values
+    epicWorkItem.SetField("Custom.Remaining.TotalRemainingEstimation", remainingTotals["TotalRemainingEstimation"]);
+    epicWorkItem.SetField("Custom.Remaining.DevelopmentRemainingEstimation", remainingTotals["DevelopmentRemainingEstimation"]);
+    epicWorkItem.SetField("Custom.Remaining.QARemainingEstimation", remainingTotals["QARemainingEstimation"]);
+    epicWorkItem.SetField("Custom.Remaining.PORemainingEstimation", remainingTotals["PORemainingEstimation"]);
+    epicWorkItem.SetField("Custom.Remaining.AdminRemainingEstimation", remainingTotals["AdminRemainingEstimation"]);
+    epicWorkItem.SetField("Custom.Remaining.OthersRemainingEstimation", remainingTotals["OthersRemainingEstimation"]);
+    
+    // Update aggregation timestamp
+    epicWorkItem.SetField("Custom.Aggregation.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
+    
+    await client.SaveWorkItem(epicWorkItem);
+    
+    Logger.Debug($"Updated Epic {epicId} estimation aggregation - Total Estimation: {estimationTotals["TotalEffortEstimation"]}, Total Remaining: {remainingTotals["TotalRemainingEstimation"]}");
+}
