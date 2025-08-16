@@ -18,6 +18,11 @@ namespace Lamdat.ADOAutomationTool.Entities
         public string LinkType { get; set; }
         
         /// <summary>
+        /// WIQL query string for work item queries
+        /// </summary>
+        public string Wiql { get; set; }
+        
+        /// <summary>
         /// Linked entity type
         /// </summary>
         public string? TargetWorkItemType { get; set; }

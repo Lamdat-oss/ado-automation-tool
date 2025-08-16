@@ -20,10 +20,20 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="Moq" Version="4.20.70" />
+    <PackageReference Include="FluentAssertions" Version="6.12.0" />
+    <PackageReference Include="Serilog" Version="4.0.1" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <PackageReference Include="CS-Script" Version="4.8.16" />
   </ItemGroup>
 
   <ItemGroup>
     <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Src\Lamdat.ADOAutomationTool.Entities\Lamdat.ADOAutomationTool.Entities.csproj" />
+    <ProjectReference Include="..\..\Src\Lamdat.ADOAutomationTool\Lamdat.ADOAutomationTool.csproj" />
   </ItemGroup>
 
 </Project>

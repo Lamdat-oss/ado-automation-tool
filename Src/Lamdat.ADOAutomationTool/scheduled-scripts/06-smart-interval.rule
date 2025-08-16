@@ -1,0 +1,67 @@
+// Smart interval task - adjusts its own interval based on conditions
+// This script demonstrates dynamic interval adjustment and LastRun usage
+
+Logger.Information("Starting smart interval task...");
+Logger.Information($"Last run was: {LastRun:yyyy-MM-dd HH:mm:ss}");
+
+try 
+{
+    var user = await Client.WhoAmI();
+    Logger.Information($"Smart task running as: {user?.Identity?.DisplayName}");
+    
+    // Check how much activity happened since last run
+    var sinceLastRun = LastRun.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+    var activityQuery = new QueryLinksByWiqlPrms
+    {
+        Wiql = $@"SELECT [System.Id] 
+                  FROM WorkItems 
+                  WHERE [System.ChangedDate] >= '{sinceLastRun}'",
+        Top = 50
+    };
+    
+    var recentActivity = await Client.QuetyLinksByWiql(activityQuery);
+    var activityCount = recentActivity.Count;
+    Logger.Information($"Found {activityCount} work items changed since last run");
+    
+    // Adjust interval based on time of day AND activity level
+    var currentHour = DateTime.Now.Hour;
+    int nextInterval;
+    string reason;
+    
+    if (activityCount > 20)
+    {
+        // High activity: check more frequently regardless of time
+        nextInterval = 2;
+        reason = $"High activity detected ({activityCount} changes) - checking every 2 minutes";
+    }
+    else if (currentHour >= 9 && currentHour <= 17) 
+    {
+        // Business hours with normal/low activity
+        nextInterval = activityCount > 5 ? 5 : 10;
+        reason = $"Business hours with {activityCount} changes - checking every {nextInterval} minutes";
+    }
+    else if (currentHour >= 18 && currentHour <= 22)
+    {
+        // Evening: moderate frequency
+        nextInterval = 15;
+        reason = $"Evening hours with {activityCount} changes - checking every 15 minutes";
+    }
+    else 
+    {
+        // Night time: less frequent
+        nextInterval = 60;
+        reason = $"Night hours with {activityCount} changes - checking every hour";
+    }
+    
+    Logger.Information($"Smart task completed. {reason}");
+    Logger.Information($"Time since last run: {(DateTime.Now - LastRun).TotalMinutes:F1} minutes");
+    
+    return ScheduledScriptResult.Success(nextInterval, reason);
+}
+catch (Exception ex)
+{
+    Logger.Error(ex, "Smart interval task failed");
+    
+    // On error, retry more frequently
+    return ScheduledScriptResult.Success(2, $"Task failed, retrying in 2 minutes: {ex.Message}");
+}

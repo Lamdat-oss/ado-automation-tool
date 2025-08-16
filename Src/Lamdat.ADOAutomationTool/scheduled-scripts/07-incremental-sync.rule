@@ -1,0 +1,102 @@
+// Incremental data sync task - demonstrates using LastRun for delta processing
+// This script shows how to process only changes since the last execution
+
+Logger.Information("Starting incremental data sync...");
+Logger.Information($"Processing changes since: {LastRun:yyyy-MM-dd HH:mm:ss}");
+
+try 
+{
+    var user = await Client.WhoAmI();
+    Logger.Information($"Data sync running as: {user?.Identity?.DisplayName}");
+    
+    // Calculate the time window for processing
+    var syncStartTime = LastRun;
+    var syncEndTime = DateTime.Now;
+    var timeWindow = syncEndTime - syncStartTime;
+    
+    Logger.Information($"Sync window: {timeWindow.TotalMinutes:F1} minutes ({syncStartTime:HH:mm:ss} to {syncEndTime:HH:mm:ss})");
+    
+    // Query for work items modified in the time window
+    var deltaQuery = new QueryLinksByWiqlPrms
+    {
+        Wiql = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.ChangedDate] 
+                  FROM WorkItems 
+                  WHERE [System.ChangedDate] >= '{syncStartTime:yyyy-MM-ddTHH:mm:ss.fffZ}' 
+                  AND [System.ChangedDate] < '{syncEndTime:yyyy-MM-ddTHH:mm:ss.fffZ}'
+                  ORDER BY [System.ChangedDate]"
+    };
+    
+    var changedItems = await Client.QuetyLinksByWiql(deltaQuery);
+    Logger.Information($"Found {changedItems.Count} work items changed in sync window");
+    
+    // Process each changed item
+    var syncStats = new Dictionary<string, int>
+    {
+        ["Processed"] = 0,
+        ["Skipped"] = 0,
+        ["Errors"] = 0
+    };
+    
+    foreach (var item in changedItems)
+    {
+        try
+        {
+            Logger.Debug($"Processing {item.WorkItemType} {item.Id}: {item.Title}");
+            
+            // Example processing logic - customize based on your needs
+            if (item.State == "Active" || item.State == "New")
+            {
+                // Process active/new items
+                Logger.Debug($"Syncing active item: {item.Id}");
+                syncStats["Processed"]++;
+            }
+            else
+            {
+                // Skip completed items
+                Logger.Debug($"Skipping completed item: {item.Id}");
+                syncStats["Skipped"]++;
+            }
+        }
+        catch (Exception itemEx)
+        {
+            Logger.Warning($"Error processing item {item.Id}: {itemEx.Message}");
+            syncStats["Errors"]++;
+        }
+    }
+    
+    // Log sync results
+    Logger.Information($"Incremental sync completed:");
+    Logger.Information($"  - Processed: {syncStats["Processed"]} items");
+    Logger.Information($"  - Skipped: {syncStats["Skipped"]} items"); 
+    Logger.Information($"  - Errors: {syncStats["Errors"]} items");
+    
+    // Determine next interval based on activity and time of day
+    var nextInterval = DetermineNextSyncInterval(changedItems.Count, DateTime.Now.Hour);
+    var message = $"Incremental sync completed - {syncStats["Processed"]} items processed, next sync in {nextInterval} minutes";
+    
+    return ScheduledScriptResult.Success(nextInterval, message);
+}
+catch (Exception ex)
+{
+    Logger.Error(ex, "Incremental data sync failed");
+    
+    // On failure, retry sooner to catch up
+    return ScheduledScriptResult.Success(5, $"Sync failed, will retry in 5 minutes: {ex.Message}");
+}
+
+// Helper method to determine optimal sync interval
+int DetermineNextSyncInterval(int changeCount, int currentHour)
+{
+    // High activity: sync more frequently
+    if (changeCount > 50) return 2;
+    if (changeCount > 20) return 5;
+    
+    // Business hours: regular intervals
+    if (currentHour >= 8 && currentHour <= 18)
+    {
+        return changeCount > 5 ? 10 : 15;
+    }
+    
+    // Off hours: less frequent
+    return 30;
+}
