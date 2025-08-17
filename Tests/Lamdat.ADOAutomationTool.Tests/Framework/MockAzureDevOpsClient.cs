@@ -320,5 +320,59 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
         {
             return _workItems.Values.ToList();
         }
+
+        public Task<List<WorkItem>> QueryWorkItemsByWiql(string wiqlQuery, int? top = null)
+        {
+            if (string.IsNullOrWhiteSpace(wiqlQuery))
+                return Task.FromResult(new List<WorkItem>());
+
+            var results = new List<WorkItem>();
+            
+            // Handle simple WorkItems queries
+            if (wiqlQuery.Contains("FROM WorkItems"))
+            {
+                // Extract work item type from WIQL query
+                var workItemTypes = new[] { "Bug", "Task", "User Story", "Product Backlog Item", "Feature", "Epic" };
+                
+                foreach (var type in workItemTypes)
+                {
+                    if (wiqlQuery.Contains($"'{type}'") || wiqlQuery.Contains($"\"{type}\""))
+                    {
+                        results.AddRange(_workItems.Values.Where(w => w.WorkItemType == type));
+                    }
+                }
+                
+                // Handle project filtering
+                if (wiqlQuery.Contains("AND [System.TeamProject] = 'PCLabs'"))
+                {
+                    results = results.Where(w => w.GetField<string>("System.TeamProject") == "PCLabs").ToList();
+                }
+                
+                // Handle date filtering (simplified)
+                if (wiqlQuery.Contains("[System.ChangedDate] >="))
+                {
+                    // For testing purposes, return a subset of results
+                    results = results.Take(Math.Max(1, results.Count / 2)).ToList();
+                }
+            }
+            // Handle WorkItemLinks queries by delegating to existing logic
+            else if (wiqlQuery.Contains("FROM WorkItemLinks"))
+            {
+                results.AddRange(HandleWorkItemLinksQuery(wiqlQuery));
+            }
+            else
+            {
+                // Return all work items for general queries
+                results.AddRange(_workItems.Values);
+            }
+            
+            // Apply top limit if specified
+            if (top.HasValue && top > 0)
+            {
+                results = results.Take(top.Value).ToList();
+            }
+            
+            return Task.FromResult(results);
+        }
     }
 }

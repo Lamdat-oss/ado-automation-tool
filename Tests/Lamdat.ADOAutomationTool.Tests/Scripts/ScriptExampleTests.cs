@@ -126,8 +126,8 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
             var childItem2 = CreateTestWorkItem("User Story", "Child Story 2", "New");
             
             // Set up relationships
-            parentItem.Relations.Add(new Entities.WorkItemRelation { RelationType = "Child", RelatedWorkItemId = childItem1.Id });
-            parentItem.Relations.Add(new Entities.WorkItemRelation { RelationType = "Child", RelatedWorkItemId = childItem2.Id });
+            parentItem.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = childItem1.Id });
+            parentItem.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = childItem2.Id });
             
             var script = @"
                 Logger.Information($""Processing epic: {Self.Id}"");

@@ -170,7 +170,7 @@ namespace Lamdat.ADOAutomationTool.Service
         /// </summary>
         private IContext CreateScheduledContext()
         {
-            return new Context(_azureDevOpsClient, _logger)
+            var context = new Context(_azureDevOpsClient, _logger)
             {
                 ScriptExecutionTimeoutSeconds = _settings.ScriptExecutionTimeoutSeconds,
                 EventType = "ScheduledTask",
@@ -189,6 +189,8 @@ namespace Lamdat.ADOAutomationTool.Service
                 WebHookResource = new WebHookResourceUpdate(),
                 ScriptRunId = Guid.NewGuid().ToString("N")[..8] // Short run ID for scheduled tasks
             };
+            
+            return context;
         }
 
         /// <summary>

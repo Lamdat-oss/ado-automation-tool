@@ -1,4 +1,5 @@
 using Lamdat.ADOAutomationTool.Tests.Framework;
+using Lamdat.ADOAutomationTool.Entities;
 using FluentAssertions;
 
 namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
@@ -71,7 +72,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             task.SetField("Microsoft.VSTS.Common.Activity", "Development");
             
             // Set up parent-child relationship
-            pbi.Relations.Add(new Entities.WorkItemRelation { RelationType = "Child", RelatedWorkItemId = task.Id });
+            pbi.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = task.Id });
             
             // Save work items
             await MockClient.SaveWorkItem(pbi);
@@ -123,8 +124,8 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             qaTask.SetField("Microsoft.VSTS.Common.Activity", "Testing");
             
             // Set up relationships
-            pbi.Relations.Add(new Entities.WorkItemRelation { RelationType = "Child", RelatedWorkItemId = devTask.Id });
-            pbi.Relations.Add(new Entities.WorkItemRelation { RelationType = "Child", RelatedWorkItemId = qaTask.Id });
+            pbi.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = devTask.Id });
+            pbi.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = qaTask.Id });
             
             // Save work items
             await MockClient.SaveWorkItem(pbi);
@@ -168,7 +169,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             feature.SetField("Custom.Estimation.POEffortEstimation", 5.0);
             
             // Set up hierarchy
-            epic.Relations.Add(new Entities.WorkItemRelation { RelationType = "Child", RelatedWorkItemId = feature.Id });
+            epic.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = feature.Id });
             
             // Save work items
             await MockClient.SaveWorkItem(epic);
