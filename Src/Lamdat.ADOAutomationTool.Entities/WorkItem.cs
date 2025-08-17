@@ -122,7 +122,7 @@ namespace Lamdat.ADOAutomationTool.Entities
             
             try
             {
-                var	linkedWorkItems = await _client.QuetyLinksByWiql(new QueryLinksByWiqlPrms
+                var	linkedWorkItems = await _client.QueryLinksByWiql(new QueryLinksByWiqlPrms
                 {
                     SourceWorkItemId = Id,
                     SourceWorkItemType = WorkItemType,

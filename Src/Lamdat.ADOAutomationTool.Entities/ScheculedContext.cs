@@ -3,9 +3,9 @@ using Serilog;
 
 namespace Lamdat.ADOAutomationTool.Entities
 {
-    public class ScheculedContext : IScheduledContext
+    public class ScheduledContext : IScheduledContext
     {
-        public ScheculedContext(IAzureDevOpsClient azureDevOpsClient, ILogger logger)
+        public ScheduledContext(IAzureDevOpsClient azureDevOpsClient, ILogger logger)
         {
             Logger = logger;
             azureDevOpsClient.Project = this.Project;

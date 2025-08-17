@@ -26,7 +26,7 @@ try
                   ORDER BY [System.ChangedDate]"
     };
     
-    var changedItems = await Client.QuetyLinksByWiql(deltaQuery);
+    var changedItems = await Client.QueryLinksByWiql(deltaQuery);
     Logger.Information($"Found {changedItems.Count} work items changed in sync window");
     
     // Process each changed item

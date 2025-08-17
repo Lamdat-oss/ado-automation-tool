@@ -21,7 +21,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                     Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Bug'""
                 };
                 
-                var bugs = await Client.QuetyLinksByWiql(queryParams);
+                var bugs = await Client.QueryLinksByWiql(queryParams);
                 Logger.Information($""Found {bugs.Count} bugs to process"");
                 
                 int processed = 0;
@@ -72,7 +72,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                     Wiql = ""SELECT [System.Id] FROM WorkItems""
                 };
                 
-                var allItems = await Client.QuetyLinksByWiql(allItemsQuery);
+                var allItems = await Client.QueryLinksByWiql(allItemsQuery);
                 
                 var summary = allItems
                     .GroupBy(item => item.GetField<string>(""System.WorkItemType""))
@@ -129,7 +129,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                         Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Task'""
                     }};
                     
-                    var sprintItems = await Client.QuetyLinksByWiql(sprintItemsQuery);
+                    var sprintItems = await Client.QueryLinksByWiql(sprintItemsQuery);
                     Logger.Information($""Found {{sprintItems.Count}} tasks in current sprint"");
                     
                     foreach (var item in sprintItems)
@@ -175,7 +175,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                     Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Task'""
                 };
                 
-                var tasks = await Client.QuetyLinksByWiql(queryParams);
+                var tasks = await Client.QueryLinksByWiql(queryParams);
                 Logger.Information($""Processing {tasks.Count} tasks..."");
                 
                 int processed = 0;
@@ -234,7 +234,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                     Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Task'""
                 };
                 
-                var tasks = await Client.QuetyLinksByWiql(queryParams);
+                var tasks = await Client.QueryLinksByWiql(queryParams);
                 Logger.Information($""Processing {tasks.Count} tasks for performance test..."");
                 
                 int processed = 0;
@@ -287,7 +287,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                     Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Bug'""
                 };
                 
-                var bugs = await Client.QuetyLinksByWiql(queryParams);
+                var bugs = await Client.QueryLinksByWiql(queryParams);
                 Logger.Information($""Found {bugs.Count} bugs to evaluate"");
                 
                 int highPriorityProcessed = 0;

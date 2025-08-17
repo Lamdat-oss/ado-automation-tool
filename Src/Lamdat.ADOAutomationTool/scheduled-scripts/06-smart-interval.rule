@@ -19,7 +19,7 @@ try
         Top = 50
     };
     
-    var recentActivity = await Client.QuetyLinksByWiql(activityQuery);
+    var recentActivity = await Client.QueryLinksByWiql(activityQuery);
     var activityCount = recentActivity.Count;
     Logger.Information($"Found {activityCount} work items changed since last run");
     
