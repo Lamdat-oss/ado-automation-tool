@@ -65,7 +65,7 @@ try
                   ORDER BY [System.ChangedDate]"
     };
     
-    var changedItems = await Client.QuetyLinksByWiql(queryParams);
+    var changedItems = await Client.QueryLinksByWiql(queryParams);
     Logger.Information($"Found {changedItems.Count} items changed since last run");
     
     // Process the changed items

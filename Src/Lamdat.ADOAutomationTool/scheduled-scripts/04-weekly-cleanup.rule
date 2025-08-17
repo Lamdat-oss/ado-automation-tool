@@ -23,7 +23,7 @@ try
         Top = 100 // Limit cleanup batch size
     };
     
-    var itemsToCleanup = await Client.QuetyLinksByWiql(cleanupQuery);
+    var itemsToCleanup = await Client.QueryLinksByWiql(cleanupQuery);
     var itemsProcessed = itemsToCleanup.Count;
     
     Logger.Information($"Found {itemsProcessed} items for cleanup (closed before {cleanupCutoffDate:yyyy-MM-dd})");

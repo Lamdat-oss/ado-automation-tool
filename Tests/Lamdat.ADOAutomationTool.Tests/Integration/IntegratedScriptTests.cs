@@ -62,7 +62,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Integration
                     Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Bug'""
                 };
                 
-                var bugs = await Client.QuetyLinksByWiql(queryParams);
+                var bugs = await Client.QueryLinksByWiql(queryParams);
                 Logger.Information($""Found {bugs.Count} bugs to check"");
                 
                 int reviewedCount = 0;
@@ -230,7 +230,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Integration
                     Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Task'""
                 };
                 
-                var tasks = await Client.QuetyLinksByWiql(queryParams);
+                var tasks = await Client.QueryLinksByWiql(queryParams);
                 Logger.Information($""Found {tasks.Count} tasks for reporting"");
                 
                 var priorityCounts = new Dictionary<int, int> { {1, 0}, {2, 0}, {3, 0} };
