@@ -194,7 +194,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
                     Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = '{workItemType}'""
                 }};
                 
-                var workItems = await Client.QuetyLinksByWiql(queryParams);
+                var workItems = await Client.QueryLinksByWiql(queryParams);
                 Logger.Information($""Found {{workItems.Count}} {workItemType} items"");
                 
                 foreach (var item in workItems)

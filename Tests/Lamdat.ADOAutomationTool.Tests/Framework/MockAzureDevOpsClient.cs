@@ -38,7 +38,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
             return Task.FromResult(workItem);
         }
 
-        public Task<List<WorkItem>> QuetyLinksByWiql(QueryLinksByWiqlPrms queryLinksByWiqlPrms)
+        public Task<List<WorkItem>> QueryLinksByWiql(QueryLinksByWiqlPrms queryLinksByWiqlPrms)
         {
             ExecutedQueries.Add(queryLinksByWiqlPrms);
             
