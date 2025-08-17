@@ -54,7 +54,7 @@ try
                   ORDER BY [System.ChangedDate]"
     };
     
-    var changedTasks = await Client.QuetyLinksByWiql(changedTasksQuery);
+    var changedTasks = await Client.QueryLinksByWiql(changedTasksQuery);
     Logger.Information($"Found {changedTasks.Count} changed tasks with completed work since last run");
     
     // Step 2: Find all features that have changed since last run (for top-down aggregation)
@@ -67,7 +67,7 @@ try
                   ORDER BY [System.ChangedDate]"
     };
     
-    var changedFeatures = await Client.QuetyLinksByWiql(changedFeaturesQuery);
+    var changedFeatures = await Client.QueryLinksByWiql(changedFeaturesQuery);
     Logger.Information($"Found {changedFeatures.Count} changed features since last run");
     
     if (changedTasks.Count == 0 && changedFeatures.Count == 0)
@@ -159,7 +159,7 @@ async Task ProcessBottomUpAggregation(List<WorkItem> changedTasks, Dictionary<st
                       AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Feature', 'Epic')"
         };
         
-        var parents = await client.QuetyLinksByWiql(parentQuery);
+        var parents = await client.QueryLinksByWiql(parentQuery);
         foreach (var parent in parents)
         {
             affectedParents.Add(parent.Id);
@@ -263,7 +263,7 @@ async Task<List<WorkItem>> GetEpicParents(int workItemId, IAzureDevOpsClient cli
                   AND [Target].[System.WorkItemType] = 'Epic'"
     };
     
-    return await client.QuetyLinksByWiql(epicQuery);
+    return await client.QueryLinksByWiql(epicQuery);
 }
 
 // Calculate aggregated completed work data for a work item from its child tasks
@@ -289,7 +289,7 @@ async Task<Dictionary<string, double>> CalculateCompletedWorkAggregation(WorkIte
                   AND [Target].[System.WorkItemType] = 'Task'"
     };
     
-    var childTasks = await client.QuetyLinksByWiql(childTasksQuery);
+    var childTasks = await client.QueryLinksByWiql(childTasksQuery);
     
     foreach (var task in childTasks)
     {
@@ -368,7 +368,7 @@ async Task ProcessEpicEstimationAggregation(int epicId, IAzureDevOpsClient clien
                   AND [Target].[System.WorkItemType] = 'Feature'"
     };
     
-    var childFeatures = await client.QuetyLinksByWiql(childFeaturesQuery);
+    var childFeatures = await client.QueryLinksByWiql(childFeaturesQuery);
     
     // Initialize aggregation totals for estimation fields
     var estimationTotals = new Dictionary<string, double>

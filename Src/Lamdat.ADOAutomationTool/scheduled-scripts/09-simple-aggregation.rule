@@ -34,7 +34,7 @@ try
                   ORDER BY [System.Id]"
     };
     
-    var changedTasks = await Client.QuetyLinksByWiql(changedTasksQuery);
+    var changedTasks = await Client.QueryLinksByWiql(changedTasksQuery);
     Logger.Information($"Found {changedTasks.Count} changed tasks since last run");
     
     if (changedTasks.Count == 0)
@@ -66,7 +66,7 @@ try
                           AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'"
             };
             
-            var parents = await Client.QuetyLinksByWiql(parentQuery);
+            var parents = await Client.QueryLinksByWiql(parentQuery);
             
             foreach (var parent in parents)
             {
@@ -122,7 +122,7 @@ async Task UpdateParentAggregation(int parentId, Func<string, string> getDiscipl
                   AND [Target].[System.WorkItemType] = 'Task'"
     };
     
-    var childTasks = await Client.QuetyLinksByWiql(childTasksQuery);
+    var childTasks = await Client.QueryLinksByWiql(childTasksQuery);
     
     // Calculate aggregated values by discipline
     var totals = new Dictionary<string, double>
