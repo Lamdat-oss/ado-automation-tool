@@ -337,13 +337,13 @@ async Task<Dictionary<string, double>> CalculateCompletedWorkAggregation(WorkIte
 async Task UpdateWorkItemWithCompletedWorkAggregation(WorkItem workItem, Dictionary<string, double> aggregatedData, IAzureDevOpsClient client)
 {
     // Update custom fields with aggregated completed work values
-    workItem.SetField("Custom.Aggregation.TotalCompletedWork", aggregatedData["TotalCompletedWork"]);
-    workItem.SetField("Custom.Aggregation.DevelopmentCompletedWork", aggregatedData["DevelopmentCompletedWork"]);
-    workItem.SetField("Custom.Aggregation.QACompletedWork", aggregatedData["QACompletedWork"]);
-    workItem.SetField("Custom.Aggregation.POCompletedWork", aggregatedData["POCompletedWork"]);
-    workItem.SetField("Custom.Aggregation.AdminCompletedWork", aggregatedData["AdminCompletedWork"]);
-    workItem.SetField("Custom.Aggregation.OthersCompletedWork", aggregatedData["OthersCompletedWork"]);
-    workItem.SetField("Custom.Aggregation.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
+    workItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", aggregatedData["TotalCompletedWork"]);
+    workItem.SetField("Custom.DevelopmentCompletedWork", aggregatedData["DevelopmentCompletedWork"]);
+    workItem.SetField("Custom.QACompletedWork", aggregatedData["QACompletedWork"]);
+    workItem.SetField("Custom.POCompletedWork", aggregatedData["POCompletedWork"]);
+    workItem.SetField("Custom.AdminCompletedWork", aggregatedData["AdminCompletedWork"]);
+    workItem.SetField("Custom.OthersCompletedWork", aggregatedData["OthersCompletedWork"]);
+    // workItem.SetField("Custom.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
     
     await client.SaveWorkItem(workItem);
     
@@ -398,20 +398,20 @@ async Task ProcessEpicEstimationAggregation(int epicId, IAzureDevOpsClient clien
         if (featureWorkItem == null) continue;
         
         // Aggregate estimation fields from Feature
-        estimationTotals["TotalEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.Estimation.TotalEffortEstimation") ?? 0;
-        estimationTotals["DevelopmentEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.Estimation.DevelopmentEffortEstimation") ?? 0;
-        estimationTotals["QAEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.Estimation.QAEffortEstimation") ?? 0;
-        estimationTotals["POEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.Estimation.POEffortEstimation") ?? 0;
-        estimationTotals["AdminEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.Estimation.AdminEffortEstimation") ?? 0;
-        estimationTotals["OthersEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.Estimation.OthersEffortEstimation") ?? 0;
+        estimationTotals["TotalEffortEstimation"] += featureWorkItem.GetField<double?>("Microsoft.VSTS.Scheduling.Effort") ?? 0;
+        estimationTotals["DevelopmentEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.DevelopmentEffortEstimation") ?? 0;
+        estimationTotals["QAEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.QAEffortEstimation") ?? 0;
+        estimationTotals["POEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.POEffortEstimation") ?? 0;
+        estimationTotals["AdminEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.AdminEffortEstimation") ?? 0;
+        estimationTotals["OthersEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.OthersEffortEstimation") ?? 0;
         
         // Aggregate remaining fields from Feature
-        remainingTotals["TotalRemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.Remaining.TotalRemainingEstimation") ?? 0;
-        remainingTotals["DevelopmentRemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.Remaining.DevelopmentRemainingEstimation") ?? 0;
-        remainingTotals["QARemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.Remaining.QARemainingEstimation") ?? 0;
-        remainingTotals["PORemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.Remaining.PORemainingEstimation") ?? 0;
-        remainingTotals["AdminRemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.Remaining.AdminRemainingEstimation") ?? 0;
-        remainingTotals["OthersRemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.Remaining.OthersRemainingEstimation") ?? 0;
+        remainingTotals["TotalRemainingEstimation"] += featureWorkItem.GetField<double?>("Microsoft.VSTS.Scheduling.RemainingWork") ?? 0;
+        remainingTotals["DevelopmentRemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.DevelopmentRemainingEstimation") ?? 0;
+        remainingTotals["QARemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.QARemainingEstimation") ?? 0;
+        remainingTotals["PORemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.PORemainingEstimation") ?? 0;
+        remainingTotals["AdminRemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.AdminRemainingEstimation") ?? 0;
+        remainingTotals["OthersRemainingEstimation"] += featureWorkItem.GetField<double?>("Custom.OthersRemainingEstimation") ?? 0;
     }
     
     // Update Epic with aggregated estimation values
@@ -431,7 +431,7 @@ async Task ProcessEpicEstimationAggregation(int epicId, IAzureDevOpsClient clien
     epicWorkItem.SetField("Custom.Remaining.OthersRemainingEstimation", remainingTotals["OthersRemainingEstimation"]);
     
     // Update aggregation timestamp
-    epicWorkItem.SetField("Custom.Aggregation.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
+    //epicWorkItem.SetField("Custom.Aggregation.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
     
     await client.SaveWorkItem(epicWorkItem);
     
