@@ -19,7 +19,7 @@ try
                   ORDER BY [System.ChangedDate] DESC"
     };
     
-    var workItemsUpdated = await Client.QuetyLinksByWiql(queryParams);
+    var workItemsUpdated = await Client.QueryLinksByWiql(queryParams);
     Logger.Information($"Found {workItemsUpdated.Count} work items updated since last run");
     
     // Process work items for report

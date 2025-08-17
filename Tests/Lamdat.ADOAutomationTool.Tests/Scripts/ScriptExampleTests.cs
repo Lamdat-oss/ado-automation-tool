@@ -140,7 +140,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
                     TargetWorkItemType = ""User Story""
                 };
                 
-                var childStories = await Client.QuetyLinksByWiql(queryParams);
+                var childStories = await Client.QueryLinksByWiql(queryParams);
                 Logger.Information($""Found {childStories.Count} child stories"");
                 
                 foreach (var story in childStories)

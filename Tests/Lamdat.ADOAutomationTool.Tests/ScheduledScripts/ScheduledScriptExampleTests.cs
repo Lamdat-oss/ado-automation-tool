@@ -82,7 +82,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                     Wiql = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Bug'""
                 };
                 
-                var bugs = await Client.QuetyLinksByWiql(queryParams);
+                var bugs = await Client.QueryLinksByWiql(queryParams);
                 Logger.Information($""Found {bugs.Count} bugs"");
                 
                 foreach (var bug in bugs)

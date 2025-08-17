@@ -112,7 +112,7 @@ namespace Lamdat.ADOAutomationTool.Service
             }
         }
 
-        public async Task<List<WorkItem>> QuetyLinksByWiql(QueryLinksByWiqlPrms queryLinksByWiqlPrms)
+        public async Task<List<WorkItem>> QueryLinksByWiql(QueryLinksByWiqlPrms queryLinksByWiqlPrms)
         {
             if (queryLinksByWiqlPrms == null)
                 throw new ArgumentNullException(nameof(queryLinksByWiqlPrms));
