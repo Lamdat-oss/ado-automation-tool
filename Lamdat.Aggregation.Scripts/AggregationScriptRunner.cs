@@ -2,6 +2,7 @@
 using Lamdat.ADOAutomationTool.ScriptEngine;
 using Serilog;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -98,7 +99,7 @@ namespace Lamdat.Aggregation.Scripts
                 }
 
                 // Initialize aggregation statistics
-                var aggregationStats = new Dictionary<string, int>
+                var aggregationStats = new ConcurrentDictionary<string, int>
                 {
                     ["TasksProcessed"] = 0,
                     ["FeaturesProcessed"] = 0,
@@ -127,11 +128,11 @@ namespace Lamdat.Aggregation.Scripts
 
                 // Step 5: Process any additional Epic aggregations needed from changed Features
                 var affectedEpics = new HashSet<int>();
-                
+
                 if (changedFeatures.Count > 0)
                 {
                     Logger.Information($"Finding Epic parents for changed features using batched queries");
-                    
+
                     // Process features in batches of 50 to avoid query length limits
                     const int batchSize = 50;
                     var featureBatches = changedFeatures.Select((feature, index) => new { feature, index })
@@ -143,7 +144,7 @@ namespace Lamdat.Aggregation.Scripts
                     {
                         // Create IN clause for batch of feature IDs
                         var featureIds = string.Join(",", featureBatch.Select(f => f.Id));
-                        
+
                         // Get Epic parents for this batch of Features using batched WIQL query
                         var batchEpicParentsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
                               FROM WorkItemLinks
@@ -154,7 +155,7 @@ namespace Lamdat.Aggregation.Scripts
                               AND [Target].[System.WorkItemType] = 'Epic'";
 
                         var batchEpicParents = await Client.QueryWorkItemsByWiql(batchEpicParentsQuery);
-                        
+
                         foreach (var epic in batchEpicParents)
                         {
                             // Additional safety check to ensure we don't include any of the source features
@@ -221,7 +222,7 @@ namespace Lamdat.Aggregation.Scripts
                 {
                     // Create IN clause for batch of task IDs
                     var taskIds = string.Join(",", taskBatch.Select(t => t.Id));
-                    
+
                     // Get parent relationships for this batch of tasks using batched WIQL query
                     var batchParentQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
                             FROM WorkItemLinks
@@ -292,7 +293,7 @@ namespace Lamdat.Aggregation.Scripts
             }
 
             // Process top-down aggregation from Features to Epics
-            async Task ProcessTopDownAggregation(List<WorkItem> changedFeatures, Dictionary<string, int> stats, IAzureDevOpsClient client)
+            async Task ProcessTopDownAggregation(List<WorkItem> changedFeatures, ConcurrentDictionary<string, int> stats, IAzureDevOpsClient client)
             {
                 var affectedEpics = new HashSet<int>();
 
@@ -313,7 +314,7 @@ namespace Lamdat.Aggregation.Scripts
                     {
                         // Create IN clause for batch of feature IDs
                         var featureIds = string.Join(",", featureBatch.Select(f => f.Id));
-                        
+
                         Logger.Debug($"Processing batch with feature IDs: {featureIds}");
 
                         // Get Epic parents for this batch of Features using batched WIQL query
@@ -438,7 +439,7 @@ namespace Lamdat.Aggregation.Scripts
                                 case "Others":
                                     aggregatedData["OthersCompletedWork"] += completedWork;
                                     break;
-                                }
+                            }
                         }
                         else
                         {
@@ -449,25 +450,6 @@ namespace Lamdat.Aggregation.Scripts
                 }
 
                 return aggregatedData;
-            }
-
-            // Update work item with aggregated completed work values
-            async Task UpdateWorkItemWithCompletedWorkAggregation(WorkItem workItem, Dictionary<string, double> aggregatedData, IAzureDevOpsClient client)
-            {
-                // Update standard Azure DevOps field
-                workItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", aggregatedData["TotalCompletedWork"]);
-
-                // Update custom fields with simplified Custom.* naming convention
-                workItem.SetField("Custom.DevelopmentCompletedWork", aggregatedData["DevelopmentCompletedWork"]);
-                workItem.SetField("Custom.QACompletedWork", aggregatedData["QACompletedWork"]);
-                workItem.SetField("Custom.POCompletedWork", aggregatedData["POCompletedWork"]);
-                workItem.SetField("Custom.AdminCompletedWork", aggregatedData["AdminCompletedWork"]);
-                workItem.SetField("Custom.OthersCompletedWork", aggregatedData["OthersCompletedWork"]);
-                //workItem.SetField("Custom.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
-
-                await client.SaveWorkItem(workItem);
-
-                Logger.Debug($"Updated {workItem.WorkItemType} {workItem.Id} completed work - Total: {aggregatedData["TotalCompletedWork"]}, Dev: {aggregatedData["DevelopmentCompletedWork"]}, QA: {aggregatedData["QACompletedWork"]}");
             }
 
             // Process Epic estimation and remaining work aggregation from Features
@@ -549,7 +531,7 @@ namespace Lamdat.Aggregation.Scripts
                     remainingTotals["OthersRemainingWork"] += featureWorkItem.GetField<double?>("Custom.OthersRemainingWork") ?? 0;
 
                     // Aggregate completed work fields from Feature (using simplified Custom.* field names)
-                    completedTotals["TotalCompletedWork"] += featureWorkItem.GetField<double?>("Custom.TotalCompletedWork") ?? 0;
+                    completedTotals["TotalCompletedWork"] += featureWorkItem.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
                     completedTotals["DevelopmentCompletedWork"] += featureWorkItem.GetField<double?>("Custom.DevelopmentCompletedWork") ?? 0;
                     completedTotals["QACompletedWork"] += featureWorkItem.GetField<double?>("Custom.QACompletedWork") ?? 0;
                     completedTotals["POCompletedWork"] += featureWorkItem.GetField<double?>("Custom.POCompletedWork") ?? 0;
@@ -590,6 +572,182 @@ namespace Lamdat.Aggregation.Scripts
                 Logger.Debug($"Updated Epic {epicId} COMPLETE aggregation - Estimation: {estimationTotals["TotalEffortEstimation"]}, Remaining: {remainingTotals["TotalRemainingWork"]}, Completed: {completedTotals["TotalCompletedWork"]}");
             }
 
+
+
+
+            // Process multi-level completed work aggregation (PBI/Bug → Feature → Epic)
+            async Task ProcessMultiLevelCompletedWorkAggregation(List<WorkItem> changedTasks, Dictionary<string, string> disciplineMappings, ConcurrentDictionary<string, int> stats, IAzureDevOpsClient client)
+            {
+                // Find all affected work items that need completed work re-aggregation
+                var affectedPBIs = new HashSet<int>();
+                var affectedBugs = new HashSet<int>();
+                var affectedGlitches = new HashSet<int>();
+                var affectedFeatures = new HashSet<int>();
+                var affectedEpics = new HashSet<int>();
+
+                await CalculateAffectedParentWorkItems(Logger, changedTasks, client, affectedPBIs, affectedBugs, affectedGlitches, affectedFeatures, affectedEpics);
+
+                var allWorkItemsWithTasks = new ConcurrentBag<int>();
+
+                foreach (var item in affectedPBIs)
+                    allWorkItemsWithTasks.Add(item);
+
+                foreach (var item in affectedBugs)
+                    allWorkItemsWithTasks.Add(item);
+
+                foreach (var item in affectedGlitches)
+                    allWorkItemsWithTasks.Add(item);
+
+                // With this block:
+                await Parallel.ForEachAsync(allWorkItemsWithTasks, Token, async (pbiId, ct) =>
+                {
+                    try
+                    {
+                        var pbiWorkItem = await client.GetWorkItem(pbiId);
+                        if (pbiWorkItem != null)
+                        {
+                            var workItemType = pbiWorkItem.WorkItemType;
+                            Logger.Debug($"Re-aggregating completed work for {workItemType} {pbiId}: {pbiWorkItem.Title}");
+
+                            // Calculate completed work from child tasks
+                            var pbiCompletedWork = await CalculateCompletedWorkAggregation(pbiWorkItem, disciplineMappings, client);
+
+                            // Update PBI with aggregated completed work
+                            await UpdateWorkItemWithCompletedWorkAggregation(pbiWorkItem, pbiCompletedWork, client);
+
+                            switch (workItemType)
+                            {
+                                case "Product Backlog Item":
+                                    stats["PBIsUpdated"]++;
+                                    break;
+                                case "Glitch":
+                                    stats["GlitchesUpdated"]++;
+                                    break;
+                                case "Bug":
+                                    stats["BugsUpdated"]++;
+                                    break;
+                                default:
+                                    break;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warning($"Error re-aggregating PBI {pbiId} completed work: {ex.Message}");
+                        stats["Errors"]++;
+                    }
+                });
+
+
+                // Re-aggregate completed work for affected Features
+                await Parallel.ForEachAsync(affectedFeatures, Token, async (featureId, ct) =>
+                {
+                    try
+                    {
+                        var featureWorkItem = await client.GetWorkItem(featureId);
+                        if (featureWorkItem != null)
+                        {
+
+                            Logger.Debug($"Re-aggregating completed work for Feature {featureId}: {featureWorkItem.Title}");
+
+                            // Calculate completed work from all descendant tasks (through PBI/Bug/Glitch children)
+                            var featureCompletedWork = await CalculateFeatureCompletedWorkFromAllDescendants(featureWorkItem, disciplineMappings, client);
+
+                            // Update Feature with aggregated completed work
+                            await UpdateWorkItemWithCompletedWorkAggregation(featureWorkItem, featureCompletedWork, client);
+
+                            stats["FeaturesUpdated"]++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warning($"Error re-aggregating Feature {featureId} completed work: {ex.Message}");
+                        stats["Errors"]++;
+                    }
+                });
+
+                // Re-aggregate completed work for affected Epics
+                await Parallel.ForEachAsync(affectedEpics, Token, async (epicId, ct) =>
+                {
+                    try
+                    {
+                        var epicWorkItem = await client.GetWorkItem(epicId);
+                        if (epicWorkItem != null)
+                        {
+
+                            Logger.Debug($"Re-aggregating completed work for Epic {epicId}: {epicWorkItem.Title}");
+
+                            // Calculate completed work from all descendant tasks (through Feature/PBI/Bug/Glitch children)
+                            var epicCompletedWork = await CalculateEpicCompletedWorkFromAllDescendants(epicWorkItem, disciplineMappings, client);
+
+                            // Update Epic completed work fields only (estimation/remaining handled elsewhere)
+                            epicWorkItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", epicCompletedWork["TotalCompletedWork"]);
+                            epicWorkItem.SetField("Custom.DevelopmentCompletedWork", epicCompletedWork["DevelopmentCompletedWork"]);
+                            epicWorkItem.SetField("Custom.QACompletedWork", epicCompletedWork["QACompletedWork"]);
+                            epicWorkItem.SetField("Custom.POCompletedWork", epicCompletedWork["POCompletedWork"]);
+                            epicWorkItem.SetField("Custom.AdminCompletedWork", epicCompletedWork["AdminCompletedWork"]);
+                            epicWorkItem.SetField("Custom.OthersCompletedWork", epicCompletedWork["OthersCompletedWork"]);
+                            //epicWorkItem.SetField("Custom.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                            await client.SaveWorkItem(epicWorkItem);
+
+                            stats["EpicsUpdated"]++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warning($"Error re-aggregating Epic {epicId} completed work: {ex.Message}");
+                        stats["Errors"]++;
+                    }
+                });
+            }
+
+            #region Calculate Epic and Feature completed work from all child tasks
+
+            // Calculate Feature completed work from all descendant tasks
+            async Task<Dictionary<string, double>> CalculateFeatureCompletedWorkFromAllDescendants(WorkItem featureItem, Dictionary<string, string> disciplineMappings, IAzureDevOpsClient client)
+            {
+                var aggregatedData = new Dictionary<string, double>
+                {
+                    ["TotalCompletedWork"] = 0,
+                    ["DevelopmentCompletedWork"] = 0,
+                    ["QACompletedWork"] = 0,
+                    ["POCompletedWork"] = 0,
+                    ["AdminCompletedWork"] = 0,
+                    ["OthersCompletedWork"] = 0
+                };
+
+                // Step 1: Get all PBI/Bug/Glitch children of this Feature
+                // Note: We exclude the feature itself from results to ensure we only get actual child PBIs/Bugs/Glitches
+                var childPBIsQuery = $@"SELECT [Target].[System.Id]
+                           FROM WorkItemLinks
+                           WHERE [Source].[System.Id] = {featureItem.Id}
+                           AND [Source].[System.TeamProject] = 'PCLabs'
+                           AND [Target].[System.TeamProject] = 'PCLabs'
+                           AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
+                           AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch')
+                           AND [Target].[System.Id] <> {featureItem.Id}";
+
+                var childPBIs = await client.QueryWorkItemsByWiql(childPBIsQuery);
+
+                foreach (var pbi in childPBIs)
+                {
+                    if (pbi.Id == featureItem.Id) continue;
+                    // Aggregate completed work fields from Feature (using simplified Custom.* field names)
+
+                    aggregatedData["TotalCompletedWork"] += pbi.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
+                    aggregatedData["DevelopmentCompletedWork"] += pbi.GetField<double?>("Custom.DevelopmentCompletedWork") ?? 0;
+                    aggregatedData["QACompletedWork"] += pbi.GetField<double?>("Custom.QACompletedWork") ?? 0;
+                    aggregatedData["POCompletedWork"] += pbi.GetField<double?>("Custom.POCompletedWork") ?? 0;
+                    aggregatedData["AdminCompletedWork"] += pbi.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
+                    aggregatedData["OthersCompletedWork"] += pbi.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
+
+                }
+
+                return aggregatedData;
+            }
+
+
             // Calculate Epic completed work from all descendant tasks
             async Task<Dictionary<string, double>> CalculateEpicCompletedWorkFromAllDescendants(WorkItem epicItem, Dictionary<string, string> disciplineMappings, IAzureDevOpsClient client)
             {
@@ -622,314 +780,43 @@ namespace Lamdat.Aggregation.Scripts
                     // Additional safety check to ensure we don't include the epic itself
                     if (feature.Id == epicItem.Id) continue;
 
-                    var childPBIsQuery = $@"SELECT [Target].[System.Id]
-                               FROM WorkItemLinks
-                               WHERE [Source].[System.Id] = {feature.Id}
-                               AND [Source].[System.TeamProject] = 'PCLabs'
-                               AND [Target].[System.TeamProject] = 'PCLabs'
-                               AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                               AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch')
-                               AND [Target].[System.Id] <> {feature.Id}";
 
-                    var childPBIs = await client.QueryWorkItemsByWiql(childPBIsQuery);
+                    aggregatedData["TotalCompletedWork"] += feature.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
+                    aggregatedData["DevelopmentCompletedWork"] += feature.GetField<double?>("Custom.DevelopmentCompletedWork") ?? 0;
+                    aggregatedData["QACompletedWork"] += feature.GetField<double?>("Custom.QACompletedWork") ?? 0;
+                    aggregatedData["POCompletedWork"] += feature.GetField<double?>("Custom.POCompletedWork") ?? 0;
+                    aggregatedData["AdminCompletedWork"] += feature.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
+                    aggregatedData["OthersCompletedWork"] += feature.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
 
-                    // Step 3: For each PBI/Bug/Glitch, get its Tasks and aggregate
-                    foreach (var pbi in childPBIs)
-                    {
-                        // Additional safety check to ensure we don't include the feature itself
-                        if (pbi.Id == feature.Id) continue;
 
-                        var tasksQuery = $@"SELECT [Target].[System.Id], [Target].[Microsoft.VSTS.Scheduling.CompletedWork], [Target].[Microsoft.VSTS.Common.Activity]
-                               FROM WorkItemLinks
-                               WHERE [Source].[System.Id] = {pbi.Id}
-                               AND [Source].[System.TeamProject] = 'PCLabs'
-                               AND [Target].[System.TeamProject] = 'PCLabs'
-                               AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                               AND [Target].[System.WorkItemType] = 'Task'
-                               AND [Target].[System.Id] <> {pbi.Id}";
-
-                        var tasks = await client.QueryWorkItemsByWiql(tasksQuery);
-
-                        foreach (var task in tasks)
-                        {
-                            // Additional safety check to ensure we don't include the PBI/Bug/Glitch itself
-                            if (task.Id == pbi.Id) continue;
-
-                            var completedWork = task.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
-                            var activity = task.GetField<string>("Microsoft.VSTS.Common.Activity") ?? "";
-
-                            if (completedWork > 0)
-                            {
-                                aggregatedData["TotalCompletedWork"] += completedWork;
-
-                                // Map activity to discipline
-                                if (disciplineMappings.TryGetValue(activity, out var discipline))
-                                {
-                                    switch (discipline)
-                                    {
-                                        case "Development":
-                                            aggregatedData["DevelopmentCompletedWork"] += completedWork;
-                                            break;
-                                        case "QA":
-                                            aggregatedData["QACompletedWork"] += completedWork;
-                                            break;
-                                        case "PO":
-                                            aggregatedData["POCompletedWork"] += completedWork;
-                                            break;
-                                        case "Admin":
-                                            aggregatedData["AdminCompletedWork"] += completedWork;
-                                            break;
-                                        case "Others":
-                                            aggregatedData["OthersCompletedWork"] += completedWork;
-                                            break;
-                                    }
-                                }
-                                else
-                                {
-                                    aggregatedData["OthersCompletedWork"] += completedWork;
-                                }
-                            }
-                        }
-                    }
                 }
 
                 return aggregatedData;
             }
 
-            // Process multi-level completed work aggregation (PBI/Bug → Feature → Epic)
-            async Task ProcessMultiLevelCompletedWorkAggregation(List<WorkItem> changedTasks, Dictionary<string, string> disciplineMappings, Dictionary<string, int> stats, IAzureDevOpsClient client)
+
+            // Update work item with aggregated completed work values
+            async Task UpdateWorkItemWithCompletedWorkAggregation(WorkItem workItem, Dictionary<string, double> aggregatedData, IAzureDevOpsClient client)
             {
-                // Find all affected work items that need completed work re-aggregation
-                var affectedPBIs = new HashSet<int>();
-                var affectedBugs = new HashSet<int>();
-                var affectedGlitches = new HashSet<int>();
-                var affectedFeatures = new HashSet<int>();
-                var affectedEpics = new HashSet<int>();
+                // Update standard Azure DevOps field
+                workItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", aggregatedData["TotalCompletedWork"]);
 
-                await CalculateAffectedParentWorkItems(Logger, changedTasks, client, affectedPBIs, affectedBugs, affectedGlitches, affectedFeatures, affectedEpics);
+                // Update custom fields with simplified Custom.* naming convention
+                workItem.SetField("Custom.DevelopmentCompletedWork", aggregatedData["DevelopmentCompletedWork"]);
+                workItem.SetField("Custom.QACompletedWork", aggregatedData["QACompletedWork"]);
+                workItem.SetField("Custom.POCompletedWork", aggregatedData["POCompletedWork"]);
+                workItem.SetField("Custom.AdminCompletedWork", aggregatedData["AdminCompletedWork"]);
+                workItem.SetField("Custom.OthersCompletedWork", aggregatedData["OthersCompletedWork"]);
+                //workItem.SetField("Custom.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
 
-                // Re-aggregate completed work for affected PBIs
-                foreach (var pbiId in affectedPBIs)
-                {
-                    try
-                    {
-                        var pbiWorkItem = await client.GetWorkItem(pbiId);
-                        if (pbiWorkItem == null) continue;
+                await client.SaveWorkItem(workItem);
 
-                        Logger.Debug($"Re-aggregating completed work for PBI {pbiId}: {pbiWorkItem.Title}");
-
-                        // Calculate completed work from child tasks
-                        var pbiCompletedWork = await CalculateCompletedWorkAggregation(pbiWorkItem, disciplineMappings, client);
-
-                        // Update PBI with aggregated completed work
-                        await UpdateWorkItemWithCompletedWorkAggregation(pbiWorkItem, pbiCompletedWork, client);
-
-                        stats["PBIsUpdated"]++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warning($"Error re-aggregating PBI {pbiId} completed work: {ex.Message}");
-                        stats["Errors"]++;
-                    }
-                }
-
-                // Re-aggregate completed work for affected Bugs
-                foreach (var bugId in affectedBugs)
-                {
-                    try
-                    {
-                        var bugWorkItem = await client.GetWorkItem(bugId);
-                        if (bugWorkItem == null) continue;
-
-                        Logger.Debug($"Re-aggregating completed work for Bug {bugId}: {bugWorkItem.Title}");
-
-                        // Calculate completed work from child tasks
-                        var bugCompletedWork = await CalculateCompletedWorkAggregation(bugWorkItem, disciplineMappings, client);
-
-                        // Update Bug with aggregated completed work
-                        await UpdateWorkItemWithCompletedWorkAggregation(bugWorkItem, bugCompletedWork, client);
-
-                        stats["BugsUpdated"]++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warning($"Error re-aggregating Bug {bugId} completed work: {ex.Message}");
-                        stats["Errors"]++;
-                    }
-                }
-
-                // Re-aggregate completed work for affected Glitches
-                foreach (var glitchId in affectedGlitches)
-                {
-                    try
-                    {
-                        var glitchWorkItem = await client.GetWorkItem(glitchId);
-                        if (glitchWorkItem == null) continue;
-
-                        Logger.Debug($"Re-aggregating completed work for Glitch {glitchId}: {glitchWorkItem.Title}");
-
-                        // Calculate completed work from child tasks
-                        var glitchCompletedWork = await CalculateCompletedWorkAggregation(glitchWorkItem, disciplineMappings, client);
-
-                        // Update Glitch with aggregated completed work
-                        await UpdateWorkItemWithCompletedWorkAggregation(glitchWorkItem, glitchCompletedWork, client);
-
-                        stats["GlitchesUpdated"]++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warning($"Error re-aggregating Glitch {glitchId} completed work: {ex.Message}");
-                        stats["Errors"]++;
-                    }
-                }
-
-                // Re-aggregate completed work for affected Features
-                foreach (var featureId in affectedFeatures)
-                {
-                    try
-                    {
-                        var featureWorkItem = await client.GetWorkItem(featureId);
-                        if (featureWorkItem == null) continue;
-
-                        Logger.Debug($"Re-aggregating completed work for Feature {featureId}: {featureWorkItem.Title}");
-
-                        // Calculate completed work from all descendant tasks (through PBI/Bug/Glitch children)
-                        var featureCompletedWork = await CalculateFeatureCompletedWorkFromAllDescendants(featureWorkItem, disciplineMappings, client);
-
-                        // Update Feature with aggregated completed work
-                        await UpdateWorkItemWithCompletedWorkAggregation(featureWorkItem, featureCompletedWork, client);
-
-                        stats["FeaturesUpdated"]++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warning($"Error re-aggregating Feature {featureId} completed work: {ex.Message}");
-                        stats["Errors"]++;
-                    }
-                }
-
-                // Re-aggregate completed work for affected Epics
-                foreach (var epicId in affectedEpics)
-                {
-                    try
-                    {
-                        var epicWorkItem = await client.GetWorkItem(epicId);
-                        if (epicWorkItem == null) continue;
-
-                        Logger.Debug($"Re-aggregating completed work for Epic {epicId}: {epicWorkItem.Title}");
-
-                        // Calculate completed work from all descendant tasks (through Feature/PBI/Bug/Glitch children)
-                        var epicCompletedWork = await CalculateEpicCompletedWorkFromAllDescendants(epicWorkItem, disciplineMappings, client);
-
-                        // Update Epic completed work fields only (estimation/remaining handled elsewhere)
-                        epicWorkItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", epicCompletedWork["TotalCompletedWork"]);
-                        epicWorkItem.SetField("Custom.DevelopmentCompletedWork", epicCompletedWork["DevelopmentCompletedWork"]);
-                        epicWorkItem.SetField("Custom.QACompletedWork", epicCompletedWork["QACompletedWork"]);
-                        epicWorkItem.SetField("Custom.POCompletedWork", epicCompletedWork["POCompletedWork"]);
-                        epicWorkItem.SetField("Custom.AdminCompletedWork", epicCompletedWork["AdminCompletedWork"]);
-                        epicWorkItem.SetField("Custom.OthersCompletedWork", epicCompletedWork["OthersCompletedWork"]);
-                        //epicWorkItem.SetField("Custom.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
-
-                        await client.SaveWorkItem(epicWorkItem);
-
-                        stats["EpicsUpdated"]++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warning($"Error re-aggregating Epic {epicId} completed work: {ex.Message}");
-                        stats["Errors"]++;
-                    }
-                }
+                Logger.Debug($"Updated {workItem.WorkItemType} {workItem.Id} completed work - Total: {aggregatedData["TotalCompletedWork"]}, Dev: {aggregatedData["DevelopmentCompletedWork"]}, QA: {aggregatedData["QACompletedWork"]}");
             }
 
-            // Calculate Feature completed work from all descendant tasks
-            async Task<Dictionary<string, double>> CalculateFeatureCompletedWorkFromAllDescendants(WorkItem featureItem, Dictionary<string, string> disciplineMappings, IAzureDevOpsClient client)
-            {
-                var aggregatedData = new Dictionary<string, double>
-                {
-                    ["TotalCompletedWork"] = 0,
-                    ["DevelopmentCompletedWork"] = 0,
-                    ["QACompletedWork"] = 0,
-                    ["POCompletedWork"] = 0,
-                    ["AdminCompletedWork"] = 0,
-                    ["OthersCompletedWork"] = 0
-                };
 
-                // Step 1: Get all PBI/Bug/Glitch children of this Feature
-                // Note: We exclude the feature itself from results to ensure we only get actual child PBIs/Bugs/Glitches
-                var childPBIsQuery = $@"SELECT [Target].[System.Id]
-                           FROM WorkItemLinks
-                           WHERE [Source].[System.Id] = {featureItem.Id}
-                           AND [Source].[System.TeamProject] = 'PCLabs'
-                           AND [Target].[System.TeamProject] = 'PCLabs'
-                           AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                           AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch')
-                           AND [Target].[System.Id] <> {featureItem.Id}";
 
-                var childPBIs = await client.QueryWorkItemsByWiql(childPBIsQuery);
-
-                // Step 2: For each PBI/Bug, get its Tasks and aggregate
-                foreach (var pbi in childPBIs)
-                {
-                    // Additional safety check to ensure we don't include the feature itself
-                    if (pbi.Id == featureItem.Id) continue;
-
-                    var tasksQuery = $@"SELECT [Target].[System.Id], [Target].[Microsoft.VSTS.Scheduling.CompletedWork], [Target].[Microsoft.VSTS.Common.Activity]
-                           FROM WorkItemLinks
-                           WHERE [Source].[System.Id] = {pbi.Id}
-                           AND [Source].[System.TeamProject] = 'PCLabs'
-                           AND [Target].[System.TeamProject] = 'PCLabs'
-                           AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                           AND [Target].[System.WorkItemType] = 'Task'
-                           AND [Target].[System.Id] <> {pbi.Id}";
-
-                    var tasks = await client.QueryWorkItemsByWiql(tasksQuery);
-
-                    foreach (var task in tasks)
-                    {
-                        // Additional safety check to ensure we don't include the PBI/Bug/Glitch itself
-                        if (task.Id == pbi.Id) continue;
-
-                        var completedWork = task.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
-                        var activity = task.GetField<string>("Microsoft.VSTS.Common.Activity") ?? "";
-
-                        if (completedWork > 0)
-                        {
-                            aggregatedData["TotalCompletedWork"] += completedWork;
-
-                            // Map activity to discipline
-                            if (disciplineMappings.TryGetValue(activity, out var discipline))
-                            {
-                                switch (discipline)
-                                {
-                                    case "Development":
-                                        aggregatedData["DevelopmentCompletedWork"] += completedWork;
-                                        break;
-                                    case "QA":
-                                        aggregatedData["QACompletedWork"] += completedWork;
-                                        break;
-                                    case "PO":
-                                        aggregatedData["POCompletedWork"] += completedWork;
-                                        break;
-                                    case "Admin":
-                                        aggregatedData["AdminCompletedWork"] += completedWork;
-                                        break;
-                                    case "Others":
-                                        aggregatedData["OthersCompletedWork"] += completedWork;
-                                        break;
-                                }
-                            }
-                            else
-                            {
-                                aggregatedData["OthersCompletedWork"] += completedWork;
-                            }
-                        }
-                    }
-                }
-
-                return aggregatedData;
-            }
-
+            #endregion
 
             async Task CalculateAffectedParentWorkItems(ILogger Logger, List<WorkItem> changedTasks, IAzureDevOpsClient client, HashSet<int> affectedPBIs, HashSet<int> affectedBugs, HashSet<int> affectedGlitches, HashSet<int> affectedFeatures, HashSet<int> affectedEpics)
             {
