@@ -706,7 +706,7 @@ namespace Lamdat.Aggregation.Scripts
                 var affectedFeatures = new HashSet<int>();
                 var affectedEpics = new HashSet<int>();
 
-                CalculateAffectedParentWorkItems(Logger, changedTasks, client, affectedPBIs, affectedBugs, affectedGlitches, affectedFeatures, affectedEpics);
+                await CalculateAffectedParentWorkItems(Logger, changedTasks, client, affectedPBIs, affectedBugs, affectedGlitches, affectedFeatures, affectedEpics);
 
                 // Re-aggregate completed work for affected PBIs
                 foreach (var pbiId in affectedPBIs)
@@ -929,29 +929,29 @@ namespace Lamdat.Aggregation.Scripts
 
                 return aggregatedData;
             }
-        }
 
-        private static void CalculateAffectedParentWorkItems(ILogger Logger, List<WorkItem> changedTasks, IAzureDevOpsClient client, HashSet<int> affectedPBIs, HashSet<int> affectedBugs, HashSet<int> affectedGlitches, HashSet<int> affectedFeatures, HashSet<int> affectedEpics)
-        {
-            Logger.Information($"Calculating Affected Parents for Re-Aggregations using batched queries");
 
-            // Process tasks in batches of 50 to avoid query length limits
-            const int batchSize = 50;
-            var taskBatches = changedTasks.Select((task, index) => new { task, index })
-                                         .GroupBy(x => x.index / batchSize)
-                                         .Select(g => g.Select(x => x.task).ToList())
-                                         .ToList();
-
-            Logger.Information($"Processing {changedTasks.Count} changed tasks in {taskBatches.Count} batches of {batchSize}");
-
-            foreach (var taskBatch in taskBatches)
+            async Task CalculateAffectedParentWorkItems(ILogger Logger, List<WorkItem> changedTasks, IAzureDevOpsClient client, HashSet<int> affectedPBIs, HashSet<int> affectedBugs, HashSet<int> affectedGlitches, HashSet<int> affectedFeatures, HashSet<int> affectedEpics)
             {
-                // Create IN clause for batch of task IDs
-                var taskIds = string.Join(",", taskBatch.Select(t => t.Id));
+                Logger.Information($"Calculating Affected Parents for Re-Aggregations using batched queries");
 
-                // Get all ancestors for this batch of tasks
-                // Note: We can't use column aliases in WIQL, so we'll get all relationships and filter afterward
-                var batchAncestorsQuery = $@"SELECT [Source].[System.Id], [Target].[System.Id], [Target].[System.WorkItemType]
+                // Process tasks in batches of 50 to avoid query length limits
+                const int batchSize = 50;
+                var taskBatches = changedTasks.Select((task, index) => new { task, index })
+                                             .GroupBy(x => x.index / batchSize)
+                                             .Select(g => g.Select(x => x.task).ToList())
+                                             .ToList();
+
+                Logger.Information($"Processing {changedTasks.Count} changed tasks in {taskBatches.Count} batches of {batchSize}");
+
+                foreach (var taskBatch in taskBatches)
+                {
+                    // Create IN clause for batch of task IDs
+                    var taskIds = string.Join(",", taskBatch.Select(t => t.Id));
+
+                    // Get all ancestors for this batch of tasks
+                    // Note: We can't use column aliases in WIQL, so we'll get all relationships and filter afterward
+                    var batchAncestorsQuery = $@"SELECT [Source].[System.Id], [Target].[System.Id], [Target].[System.WorkItemType]
                                FROM WorkItemLinks
                                WHERE [Source].[System.Id] IN ({taskIds})
                                AND [Source].[System.TeamProject] = 'PCLabs'
@@ -959,61 +959,61 @@ namespace Lamdat.Aggregation.Scripts
                                AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
                                AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic')";
 
-                var batchAncestors = await client.QueryWorkItemsByWiql(batchAncestorsQuery);
-                Logger.Debug($"Found {batchAncestors.Count} ancestor relationships for batch of {taskBatch.Count} tasks");
+                    var batchAncestors = await client.QueryWorkItemsByWiql(batchAncestorsQuery);
+                    Logger.Debug($"Found {batchAncestors.Count} ancestor relationships for batch of {taskBatch.Count} tasks");
 
-                batchAncestors = batchAncestors.Where(a => a.WorkItemType != "Task").ToList();
+                    batchAncestors = batchAncestors.Where(a => a.WorkItemType != "Task").ToList();
 
-                foreach (var ancestor in batchAncestors)
-                {
-                    // Since we can't use aliases, we need to ensure we don't include the source task itself
-                    // The ancestor.Id is the Target work item ID, so we check it's not in our source task batch
-                    var isSourceTask = taskBatch.Any(t => t.Id == ancestor.Id);
-                    if (isSourceTask) continue;
+                    foreach (var ancestor in batchAncestors)
+                    {
+                        // Since we can't use aliases, we need to ensure we don't include the source task itself
+                        // The ancestor.Id is the Target work item ID, so we check it's not in our source task batch
+                        var isSourceTask = taskBatch.Any(t => t.Id == ancestor.Id);
+                        if (isSourceTask) continue;
 
-                    if (ancestor.WorkItemType == "Feature")
-                    {
-                        affectedFeatures.Add(ancestor.Id);
-                    }
-                    else if (ancestor.WorkItemType == "Epic")
-                    {
-                        affectedEpics.Add(ancestor.Id);
-                    }
-                    else if (ancestor.WorkItemType == "Product Backlog Item")
-                    {
-                        affectedPBIs.Add(ancestor.Id);
-                    }
-                    else if (ancestor.WorkItemType == "Bug")
-                    {
-                        affectedBugs.Add(ancestor.Id);
-                    }
-                    else if (ancestor.WorkItemType == "Glitch")
-                    {
-                        affectedGlitches.Add(ancestor.Id);
+                        if (ancestor.WorkItemType == "Feature")
+                        {
+                            affectedFeatures.Add(ancestor.Id);
+                        }
+                        else if (ancestor.WorkItemType == "Epic")
+                        {
+                            affectedEpics.Add(ancestor.Id);
+                        }
+                        else if (ancestor.WorkItemType == "Product Backlog Item")
+                        {
+                            affectedPBIs.Add(ancestor.Id);
+                        }
+                        else if (ancestor.WorkItemType == "Bug")
+                        {
+                            affectedBugs.Add(ancestor.Id);
+                        }
+                        else if (ancestor.WorkItemType == "Glitch")
+                        {
+                            affectedGlitches.Add(ancestor.Id);
+                        }
                     }
                 }
-            }
 
-            // Now find Feature parents for all affected PBIs/Bugs/Glitches in batches
-            var allWorkItemsNeedingFeatureParents = new List<int>();
-            allWorkItemsNeedingFeatureParents.AddRange(affectedPBIs);
-            allWorkItemsNeedingFeatureParents.AddRange(affectedBugs);
-            allWorkItemsNeedingFeatureParents.AddRange(affectedGlitches);
+                // Now find Feature parents for all affected PBIs/Bugs/Glitches in batches
+                var allWorkItemsNeedingFeatureParents = new List<int>();
+                allWorkItemsNeedingFeatureParents.AddRange(affectedPBIs);
+                allWorkItemsNeedingFeatureParents.AddRange(affectedBugs);
+                allWorkItemsNeedingFeatureParents.AddRange(affectedGlitches);
 
-            if (allWorkItemsNeedingFeatureParents.Count > 0)
-            {
-                var workItemBatches = allWorkItemsNeedingFeatureParents.Select((id, index) => new { id, index })
-                                                                      .GroupBy(x => x.index / batchSize)
-                                                                      .Select(g => g.Select(x => x.id).ToList())
-                                                                      .ToList();
-
-                Logger.Information($"Finding Feature parents for {allWorkItemsNeedingFeatureParents.Count} work items in {workItemBatches.Count} batches");
-
-                foreach (var workItemBatch in workItemBatches)
+                if (allWorkItemsNeedingFeatureParents.Count > 0)
                 {
-                    var workItemIds = string.Join(",", workItemBatch);
+                    var workItemBatches = allWorkItemsNeedingFeatureParents.Select((id, index) => new { id, index })
+                                                                          .GroupBy(x => x.index / batchSize)
+                                                                          .Select(g => g.Select(x => x.id).ToList())
+                                                                          .ToList();
 
-                    var featureParentsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                    Logger.Information($"Finding Feature parents for {allWorkItemsNeedingFeatureParents.Count} work items in {workItemBatches.Count} batches");
+
+                    foreach (var workItemBatch in workItemBatches)
+                    {
+                        var workItemIds = string.Join(",", workItemBatch);
+
+                        var featureParentsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
                                         FROM WorkItemLinks
                                         WHERE [Source].[System.Id] IN ({workItemIds})
                                         AND [Source].[System.TeamProject] = 'PCLabs'
@@ -1021,34 +1021,34 @@ namespace Lamdat.Aggregation.Scripts
                                         AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
                                         AND [Target].[System.WorkItemType] = 'Feature'";
 
-                    var featureParents = await client.QueryWorkItemsByWiql(featureParentsQuery);
-                    Logger.Debug($"Found {featureParents.Count} feature parent relationships for batch of {workItemBatch.Count} work items");
+                        var featureParents = await client.QueryWorkItemsByWiql(featureParentsQuery);
+                        Logger.Debug($"Found {featureParents.Count} feature parent relationships for batch of {workItemBatch.Count} work items");
 
-                    foreach (var parent in featureParents)
-                    {
-                        if (parent.WorkItemType == "Feature")
+                        foreach (var parent in featureParents)
                         {
-                            affectedFeatures.Add(parent.Id);
+                            if (parent.WorkItemType == "Feature")
+                            {
+                                affectedFeatures.Add(parent.Id);
+                            }
                         }
                     }
                 }
-            }
 
-            // Now find Epic parents of all affected Features in batches
-            if (affectedFeatures.Count > 0)
-            {
-                var featureBatches = affectedFeatures.Select((id, index) => new { id, index })
-                                                    .GroupBy(x => x.index / batchSize)
-                                                    .Select(g => g.Select(x => x.id).ToList())
-                                                    .ToList();
-
-                Logger.Information($"Finding Epic parents for {affectedFeatures.Count} features in {featureBatches.Count} batches");
-
-                foreach (var featureBatch in featureBatches)
+                // Now find Epic parents of all affected Features in batches
+                if (affectedFeatures.Count > 0)
                 {
-                    var featureIds = string.Join(",", featureBatch);
+                    var featureBatches = affectedFeatures.Select((id, index) => new { id, index })
+                                                        .GroupBy(x => x.index / batchSize)
+                                                        .Select(g => g.Select(x => x.id).ToList())
+                                                        .ToList();
 
-                    var epicParentsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                    Logger.Information($"Finding Epic parents for {affectedFeatures.Count} features in {featureBatches.Count} batches");
+
+                    foreach (var featureBatch in featureBatches)
+                    {
+                        var featureIds = string.Join(",", featureBatch);
+
+                        var epicParentsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
                                         FROM WorkItemLinks
                                         WHERE [Source].[System.Id] IN ({featureIds})
                                         AND [Source].[System.TeamProject] = 'PCLabs'
@@ -1056,20 +1056,27 @@ namespace Lamdat.Aggregation.Scripts
                                         AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
                                         AND [Target].[System.WorkItemType] = 'Epic'";
 
-                    var epicParents = await client.QueryWorkItemsByWiql(epicParentsQuery);
-                    Logger.Debug($"Found {epicParents.Count} epic parent relationships for batch of {featureBatch.Count} features");
+                        var epicParents = await client.QueryWorkItemsByWiql(epicParentsQuery);
+                        Logger.Debug($"Found {epicParents.Count} epic parent relationships for batch of {featureBatch.Count} features");
 
-                    foreach (var parent in epicParents)
-                    {
-                        if (parent.WorkItemType == "Epic")
+                        foreach (var parent in epicParents)
                         {
-                            affectedEpics.Add(parent.Id);
+                            if (parent.WorkItemType == "Epic")
+                            {
+                                affectedEpics.Add(parent.Id);
+                            }
                         }
                     }
                 }
+
+                Logger.Information($"Found {affectedPBIs.Count} PBIs, {affectedBugs.Count} bugs, {affectedGlitches.Count} glitches, {affectedFeatures.Count} features and {affectedEpics.Count} epics needing completed work re-aggregation");
             }
 
-            Logger.Information($"Found {affectedPBIs.Count} PBIs, {affectedBugs.Count} bugs, {affectedGlitches.Count} glitches, {affectedFeatures.Count} features and {affectedEpics.Count} epics needing completed work re-aggregation");
+
         }
+
     }
 }
+
+
+
