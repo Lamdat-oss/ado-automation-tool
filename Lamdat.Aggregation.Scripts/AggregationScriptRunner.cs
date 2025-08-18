@@ -114,9 +114,6 @@ namespace Lamdat.Aggregation.Scripts
                 // Step 3: Process bottom-up aggregation (Tasks → Parents)
                 if (changedTasks.Count > 0)
                 {
-                    //await ProcessBottomUpAggregation(changedTasks, disciplineMappings, aggregationStats, Client);
-
-                    // Step 3.1: Process multi-level completed work aggregation (PBI/Bug → Feature → Epic)
                     await ProcessMultiLevelCompletedWorkAggregation(changedTasks, disciplineMappings, aggregationStats, Client);
                 }
 
@@ -125,65 +122,9 @@ namespace Lamdat.Aggregation.Scripts
                 {
                     await ProcessTopDownAggregation(changedFeatures, aggregationStats, Client);
                 }
-
-                // Step 5: Process any additional Epic aggregations needed from changed Features
-                var affectedEpics = new HashSet<int>();
-
-                if (changedFeatures.Count > 0)
-                {
-                    Logger.Information($"Finding Epic parents for changed features using batched queries");
-
-                    // Process features in batches of 50 to avoid query length limits
-                    const int batchSize = 50;
-                    var featureBatches = changedFeatures.Select((feature, index) => new { feature, index })
-                                                       .GroupBy(x => x.index / batchSize)
-                                                       .Select(g => g.Select(x => x.feature).ToList())
-                                                       .ToList();
-
-                    foreach (var featureBatch in featureBatches)
-                    {
-                        // Create IN clause for batch of feature IDs
-                        var featureIds = string.Join(",", featureBatch.Select(f => f.Id));
-
-                        // Get Epic parents for this batch of Features using batched WIQL query
-                        var batchEpicParentsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
-                              FROM WorkItemLinks
-                              WHERE [Source].[System.Id] IN ({featureIds})
-                              AND [Source].[System.TeamProject] = 'PCLabs'
-                              AND [Target].[System.TeamProject] = 'PCLabs'
-                              AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
-                              AND [Target].[System.WorkItemType] = 'Epic'";
-
-                        var batchEpicParents = await Client.QueryWorkItemsByWiql(batchEpicParentsQuery);
-
-                        foreach (var epic in batchEpicParents)
-                        {
-                            // Additional safety check to ensure we don't include any of the source features
-                            if (!featureBatch.Any(f => f.Id == epic.Id))
-                            {
-                                affectedEpics.Add(epic.Id);
-                            }
-                        }
-                    }
-                }
-
-                foreach (var epicId in affectedEpics)
-                {
-                    try
-                    {
-                        await ProcessEpicEstimationAggregation(epicId, Client);
-                        aggregationStats["EpicsUpdated"]++;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warning($"Error processing Epic {epicId} estimation aggregation: {ex.Message}");
-                        aggregationStats["Errors"]++;
-                    }
-                }
-
+                 
                 // Log aggregation results
                 Logger.Information($"Hierarchical aggregation completed:");
-                Logger.Information($"  - Tasks processed: {aggregationStats["TasksProcessed"]}");
                 Logger.Information($"  - Features processed: {aggregationStats["FeaturesProcessed"]}");
                 Logger.Information($"  - PBIs updated: {aggregationStats["PBIsUpdated"]}");
                 Logger.Information($"  - Bugs updated: {aggregationStats["BugsUpdated"]}");
@@ -200,96 +141,6 @@ namespace Lamdat.Aggregation.Scripts
             {
                 Logger.Error(ex, "Hierarchical aggregation failed");
                 return ScheduledScriptResult.Success(5, $"Aggregation failed, will retry in 5 minutes: {ex.Message}");
-            }
-
-            // Process bottom-up aggregation from Tasks to parent work items
-            async Task ProcessBottomUpAggregation(List<WorkItem> changedTasks, Dictionary<string, string> disciplineMappings, Dictionary<string, int> stats, IAzureDevOpsClient client)
-            {
-                var affectedParents = new HashSet<int>();
-
-                Logger.Information($"Finding affected parents using batched queries");
-
-                // Process tasks in batches of 50 to avoid query length limits
-                const int batchSize = 50;
-                var taskBatches = changedTasks.Select((task, index) => new { task, index })
-                                             .GroupBy(x => x.index / batchSize)
-                                             .Select(g => g.Select(x => x.task).ToList())
-                                             .ToList();
-
-                Logger.Information($"Processing {changedTasks.Count} changed tasks in {taskBatches.Count} batches of {batchSize}");
-
-                foreach (var taskBatch in taskBatches)
-                {
-                    // Create IN clause for batch of task IDs
-                    var taskIds = string.Join(",", taskBatch.Select(t => t.Id));
-
-                    // Get parent relationships for this batch of tasks using batched WIQL query
-                    var batchParentQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
-                            FROM WorkItemLinks
-                            WHERE [Source].[System.Id] IN ({taskIds})
-                            AND [Source].[System.TeamProject] = 'PCLabs'
-                            AND [Target].[System.TeamProject] = 'PCLabs'
-                            AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
-                            AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic')";
-
-                    var batchParents = await client.QueryWorkItemsByWiql(batchParentQuery);
-                    Logger.Debug($"Found {batchParents.Count} parent relationships for batch of {taskBatch.Count} tasks");
-
-                    foreach (var parent in batchParents)
-                    {
-                        // Additional safety check to ensure we don't include any of the source tasks
-                        if (!taskBatch.Any(t => t.Id == parent.Id))
-                        {
-                            affectedParents.Add(parent.Id);
-                        }
-                    }
-                }
-
-                Logger.Information($"Found {affectedParents.Count} parent work items affected by task changes");
-
-                foreach (var parentId in affectedParents)
-                {
-                    try
-                    {
-                        var parentWorkItem = await client.GetWorkItem(parentId);
-                        if (parentWorkItem == null) continue;
-
-                        Logger.Debug($"Processing completed work aggregation for {parentWorkItem.WorkItemType} {parentId}: {parentWorkItem.Title}");
-
-                        // Calculate aggregated completed work values for this parent
-                        var aggregatedData = await CalculateCompletedWorkAggregation(parentWorkItem, disciplineMappings, client);
-
-                        // Update parent work item with aggregated completed work values
-                        await UpdateWorkItemWithCompletedWorkAggregation(parentWorkItem, aggregatedData, client);
-
-                        // Update statistics
-                        switch (parentWorkItem.WorkItemType)
-                        {
-                            case "Product Backlog Item":
-                                stats["PBIsUpdated"]++;
-                                break;
-                            case "Bug":
-                                stats["BugsUpdated"]++;
-                                break;
-                            case "Glitch":
-                                stats["GlitchesUpdated"]++;
-                                break;
-                            case "Feature":
-                                stats["FeaturesUpdated"]++;
-                                break;
-                            case "Epic":
-                                stats["EpicsUpdated"]++;
-                                break;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warning($"Error processing parent {parentId} completed work aggregation: {ex.Message}");
-                        stats["Errors"]++;
-                    }
-                }
-
-                stats["TasksProcessed"] = changedTasks.Count;
             }
 
             // Process top-down aggregation from Features to Epics
@@ -347,7 +198,7 @@ namespace Lamdat.Aggregation.Scripts
 
                 Logger.Information($"Found {affectedEpics.Count} epic work items affected by feature changes");
 
-                foreach (var epicId in affectedEpics)
+                await Parallel.ForEachAsync(affectedEpics, Token, async (epicId, ct) =>
                 {
                     try
                     {
@@ -358,100 +209,12 @@ namespace Lamdat.Aggregation.Scripts
                         Logger.Warning($"Error processing epic {epicId} estimation aggregation: {ex.Message}");
                         stats["Errors"]++;
                     }
-                }
+                });
 
                 stats["FeaturesProcessed"] = changedFeatures.Count;
             }
-
-            // Get Epic parents for a given work item
-            async Task<List<WorkItem>> GetEpicParents(int workItemId, IAzureDevOpsClient client)
-            {
-                var epicQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
-                      FROM WorkItemLinks
-                      WHERE [Source].[System.Id] = {workItemId}
-                      AND [Source].[System.TeamProject] = 'PCLabs'
-                      AND [Target].[System.TeamProject] = 'PCLabs'
-                      AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
-                      AND [Target].[System.WorkItemType] = 'Epic'
-                      AND [Target].[System.Id] <> {workItemId}";
-
-                var results = await client.QueryWorkItemsByWiql(epicQuery);
-
-                // Additional safety check to ensure we don't include the source work item itself
-                return results.Where(wi => wi.Id != workItemId).ToList();
-            }
-
-            // Calculate aggregated completed work data for a work item from its child tasks
-            async Task<Dictionary<string, double>> CalculateCompletedWorkAggregation(WorkItem parentItem, Dictionary<string, string> disciplineMappings, IAzureDevOpsClient client)
-            {
-                var aggregatedData = new Dictionary<string, double>
-                {
-                    ["TotalCompletedWork"] = 0,
-                    ["DevelopmentCompletedWork"] = 0,
-                    ["QACompletedWork"] = 0,
-                    ["POCompletedWork"] = 0,
-                    ["AdminCompletedWork"] = 0,
-                    ["OthersCompletedWork"] = 0
-                };
-
-                // Get all child tasks for this work item using the new simple WIQL method
-                // Note: We exclude the parent itself from results to ensure we only get actual child tasks
-                var childTasksQuery = $@"SELECT [Target].[System.Id], [Target].[Microsoft.VSTS.Scheduling.CompletedWork], [Target].[Microsoft.VSTS.Common.Activity]
-                            FROM WorkItemLinks
-                            WHERE [Source].[System.Id] = {parentItem.Id}
-                            AND [Source].[System.TeamProject] = 'PCLabs'
-                            AND [Target].[System.TeamProject] = 'PCLabs'
-                            AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                            AND [Target].[System.WorkItemType] = 'Task'
-                            AND [Target].[System.Id] <> {parentItem.Id}";
-
-                var childTasks = await client.QueryWorkItemsByWiql(childTasksQuery);
-
-                foreach (var task in childTasks)
-                {
-                    // Additional safety check to ensure we don't include the parent itself
-                    if (task.Id == parentItem.Id) continue;
-
-                    var completedWork = task.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
-                    var activity = task.GetField<string>("Microsoft.VSTS.Common.Activity") ?? "";
-
-                    if (completedWork > 0)
-                    {
-                        aggregatedData["TotalCompletedWork"] += completedWork;
-
-                        // Map activity to discipline
-                        if (disciplineMappings.TryGetValue(activity, out var discipline))
-                        {
-                            switch (discipline)
-                            {
-                                case "Development":
-                                    aggregatedData["DevelopmentCompletedWork"] += completedWork;
-                                    break;
-                                case "QA":
-                                    aggregatedData["QACompletedWork"] += completedWork;
-                                    break;
-                                case "PO":
-                                    aggregatedData["POCompletedWork"] += completedWork;
-                                    break;
-                                case "Admin":
-                                    aggregatedData["AdminCompletedWork"] += completedWork;
-                                    break;
-                                case "Others":
-                                    aggregatedData["OthersCompletedWork"] += completedWork;
-                                    break;
-                            }
-                        }
-                        else
-                        {
-                            // Unknown activity goes to Others
-                            aggregatedData["OthersCompletedWork"] += completedWork;
-                        }
-                    }
-                }
-
-                return aggregatedData;
-            }
-
+                        
+          
             // Process Epic estimation and remaining work aggregation from Features
             async Task ProcessEpicEstimationAggregation(int epicId, IAzureDevOpsClient client)
             {
@@ -574,6 +337,7 @@ namespace Lamdat.Aggregation.Scripts
 
 
 
+            ////// Calculate completed work aggregation from child tasks ////
 
             // Process multi-level completed work aggregation (PBI/Bug → Feature → Epic)
             async Task ProcessMultiLevelCompletedWorkAggregation(List<WorkItem> changedTasks, Dictionary<string, string> disciplineMappings, ConcurrentDictionary<string, int> stats, IAzureDevOpsClient client)
@@ -817,6 +581,78 @@ namespace Lamdat.Aggregation.Scripts
 
 
             #endregion
+
+            // Calculate aggregated completed work data for a work item from its child tasks
+            async Task<Dictionary<string, double>> CalculateCompletedWorkAggregation(WorkItem parentItem, Dictionary<string, string> disciplineMappings, IAzureDevOpsClient client)
+            {
+                var aggregatedData = new Dictionary<string, double>
+                {
+                    ["TotalCompletedWork"] = 0,
+                    ["DevelopmentCompletedWork"] = 0,
+                    ["QACompletedWork"] = 0,
+                    ["POCompletedWork"] = 0,
+                    ["AdminCompletedWork"] = 0,
+                    ["OthersCompletedWork"] = 0
+                };
+
+                // Get all child tasks for this work item using the new simple WIQL method
+                // Note: We exclude the parent itself from results to ensure we only get actual child tasks
+                var childTasksQuery = $@"SELECT [Target].[System.Id], [Target].[Microsoft.VSTS.Scheduling.CompletedWork], [Target].[Microsoft.VSTS.Common.Activity]
+                            FROM WorkItemLinks
+                            WHERE [Source].[System.Id] = {parentItem.Id}
+                            AND [Source].[System.TeamProject] = 'PCLabs'
+                            AND [Target].[System.TeamProject] = 'PCLabs'
+                            AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
+                            AND [Target].[System.WorkItemType] = 'Task'
+                            AND [Target].[System.Id] <> {parentItem.Id}";
+
+                var childTasks = await client.QueryWorkItemsByWiql(childTasksQuery);
+
+                foreach (var task in childTasks)
+                {
+                    // Additional safety check to ensure we don't include the parent itself
+                    if (task.Id == parentItem.Id) continue;
+
+                    var completedWork = task.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
+                    var activity = task.GetField<string>("Microsoft.VSTS.Common.Activity") ?? "";
+
+                    if (completedWork > 0)
+                    {
+                        aggregatedData["TotalCompletedWork"] += completedWork;
+
+                        // Map activity to discipline
+                        if (disciplineMappings.TryGetValue(activity, out var discipline))
+                        {
+                            switch (discipline)
+                            {
+                                case "Development":
+                                    aggregatedData["DevelopmentCompletedWork"] += completedWork;
+                                    break;
+                                case "QA":
+                                    aggregatedData["QACompletedWork"] += completedWork;
+                                    break;
+                                case "PO":
+                                    aggregatedData["POCompletedWork"] += completedWork;
+                                    break;
+                                case "Admin":
+                                    aggregatedData["AdminCompletedWork"] += completedWork;
+                                    break;
+                                case "Others":
+                                    aggregatedData["OthersCompletedWork"] += completedWork;
+                                    break;
+                            }
+                        }
+                        else
+                        {
+                            // Unknown activity goes to Others
+                            aggregatedData["OthersCompletedWork"] += completedWork;
+                        }
+                    }
+                }
+
+                return aggregatedData;
+            }
+
 
             async Task CalculateAffectedParentWorkItems(ILogger Logger, List<WorkItem> changedTasks, IAzureDevOpsClient client, HashSet<int> affectedPBIs, HashSet<int> affectedBugs, HashSet<int> affectedGlitches, HashSet<int> affectedFeatures, HashSet<int> affectedEpics)
             {
