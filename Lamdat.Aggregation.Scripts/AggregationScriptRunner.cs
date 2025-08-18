@@ -12,12 +12,12 @@ namespace Lamdat.Aggregation.Scripts
     internal class AggregationScriptRunner
     {
 
-        public static async Task<ScheduledScriptResult> Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken Token,string ScriptRunId, DateTime LastRun)
+        public static async Task<ScheduledScriptResult> Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken Token, string ScriptRunId, DateTime LastRun)
         {
 
             // Hierarchical Work Item Aggregation Task
-            // This script aggregates effort data through the Epic > Feature > PBI/Bug > Task hierarchy
-            // 1. Bottom-up: Task completed work aggregated to parents (PBI/Bug/Feature/Epic)
+            // This script aggregates effort data through the Epic > Feature > PBI/Bug/Glitch > Task hierarchy
+            // 1. Bottom-up: Task completed work aggregated to parents (PBI/Bug/Glitch/Feature/Epic)
             // 2. Top-down: Feature estimation/remaining fields aggregated to Epic
             // Runs every 10 minutes to process work items that have changed since last run
             //
@@ -103,6 +103,8 @@ namespace Lamdat.Aggregation.Scripts
                     ["TasksProcessed"] = 0,
                     ["FeaturesProcessed"] = 0,
                     ["PBIsUpdated"] = 0,
+                    ["BugsUpdated"] = 0,
+                    ["GlitchesUpdated"] = 0,
                     ["FeaturesUpdated"] = 0,
                     ["EpicsUpdated"] = 0,
                     ["Errors"] = 0
@@ -152,12 +154,15 @@ namespace Lamdat.Aggregation.Scripts
                 Logger.Information($"Hierarchical aggregation completed:");
                 Logger.Information($"  - Tasks processed: {aggregationStats["TasksProcessed"]}");
                 Logger.Information($"  - Features processed: {aggregationStats["FeaturesProcessed"]}");
-                Logger.Information($"  - PBIs/Bugs updated: {aggregationStats["PBIsUpdated"]}");
+                Logger.Information($"  - PBIs updated: {aggregationStats["PBIsUpdated"]}");
+                Logger.Information($"  - Bugs updated: {aggregationStats["BugsUpdated"]}");
+                Logger.Information($"  - Glitches updated: {aggregationStats["GlitchesUpdated"]}");
                 Logger.Information($"  - Features updated: {aggregationStats["FeaturesUpdated"]}");
                 Logger.Information($"  - Epics updated: {aggregationStats["EpicsUpdated"]}");
                 Logger.Information($"  - Errors: {aggregationStats["Errors"]}");
 
-                var message = $"Processed {changedTasks.Count} tasks + {changedFeatures.Count} features, updated {aggregationStats["PBIsUpdated"] + aggregationStats["FeaturesUpdated"] + aggregationStats["EpicsUpdated"]} work items";
+                var totalWorkItemsUpdated = aggregationStats["PBIsUpdated"] + aggregationStats["BugsUpdated"] + aggregationStats["GlitchesUpdated"] + aggregationStats["FeaturesUpdated"] + aggregationStats["EpicsUpdated"];
+                var message = $"Processed {changedTasks.Count} tasks + {changedFeatures.Count} features, updated {totalWorkItemsUpdated} work items";
                 return ScheduledScriptResult.Success(10, message);
             }
             catch (Exception ex)
@@ -181,7 +186,7 @@ namespace Lamdat.Aggregation.Scripts
                             AND [Source].[System.TeamProject] = 'PCLabs'
                             AND [Target].[System.TeamProject] = 'PCLabs'
                             AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
-                            AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Feature', 'Epic')
+                            AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic')
                             AND [Target].[System.Id] <> {task.Id}";
 
                     var parents = await client.QueryWorkItemsByWiql(parentQuery);
@@ -216,8 +221,13 @@ namespace Lamdat.Aggregation.Scripts
                         switch (parentWorkItem.WorkItemType)
                         {
                             case "Product Backlog Item":
-                            case "Bug":
                                 stats["PBIsUpdated"]++;
+                                break;
+                            case "Bug":
+                                stats["BugsUpdated"]++;
+                                break;
+                            case "Glitch":
+                                stats["GlitchesUpdated"]++;
                                 break;
                             case "Feature":
                                 stats["FeaturesUpdated"]++;
@@ -293,7 +303,7 @@ namespace Lamdat.Aggregation.Scripts
                       AND [Target].[System.Id] <> {workItemId}";
 
                 var results = await client.QueryWorkItemsByWiql(epicQuery);
-                
+
                 // Additional safety check to ensure we don't include the source work item itself
                 return results.Where(wi => wi.Id != workItemId).ToList();
             }
@@ -546,12 +556,12 @@ namespace Lamdat.Aggregation.Scripts
                                AND [Source].[System.TeamProject] = 'PCLabs'
                                AND [Target].[System.TeamProject] = 'PCLabs'
                                AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                               AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug')
+                               AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch')
                                AND [Target].[System.Id] <> {feature.Id}";
 
                     var childPBIs = await client.QueryWorkItemsByWiql(childPBIsQuery);
 
-                    // Step 3: For each PBI/Bug, get its Tasks and aggregate
+                    // Step 3: For each PBI/Bug/Glitch, get its Tasks and aggregate
                     foreach (var pbi in childPBIs)
                     {
                         // Additional safety check to ensure we don't include the feature itself
@@ -570,7 +580,7 @@ namespace Lamdat.Aggregation.Scripts
 
                         foreach (var task in tasks)
                         {
-                            // Additional safety check to ensure we don't include the PBI itself
+                            // Additional safety check to ensure we don't include the PBI/Bug/Glitch itself
                             if (task.Id == pbi.Id) continue;
 
                             var completedWork = task.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
@@ -617,21 +627,26 @@ namespace Lamdat.Aggregation.Scripts
             // Process multi-level completed work aggregation (PBI/Bug → Feature → Epic)
             async Task ProcessMultiLevelCompletedWorkAggregation(List<WorkItem> changedTasks, Dictionary<string, string> disciplineMappings, Dictionary<string, int> stats, IAzureDevOpsClient client)
             {
-                // Find all affected Features and Epics that need completed work re-aggregation
+                // Find all affected work items that need completed work re-aggregation
+                var affectedPBIs = new HashSet<int>();
+                var affectedBugs = new HashSet<int>();
+                var affectedGlitches = new HashSet<int>();
                 var affectedFeatures = new HashSet<int>();
                 var affectedEpics = new HashSet<int>();
+
+                Logger.Information($"Caclulating Affected Parents for Re-Aggregations");
 
                 // Find Features affected by the task changes (through PBI/Bug parents)
                 foreach (var task in changedTasks)
                 {
-                    // Get all ancestors (PBI/Bug, Feature, Epic) for this task
+                    // Get all ancestors (PBI/Bug/Glitch, Feature, Epic) for this task
                     var ancestorsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
                                FROM WorkItemLinks
                                WHERE [Source].[System.Id] = {task.Id}
                                AND [Source].[System.TeamProject] = 'PCLabs'
                                AND [Target].[System.TeamProject] = 'PCLabs'
                                AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
-                               AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Feature', 'Epic')
+                               AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic')
                                AND [Target].[System.Id] <> {task.Id}";
 
                     var ancestors = await client.QueryWorkItemsByWiql(ancestorsQuery);
@@ -649,16 +664,17 @@ namespace Lamdat.Aggregation.Scripts
                         {
                             affectedEpics.Add(ancestor.Id);
                         }
-                        else if (ancestor.WorkItemType == "Product Backlog Item" || ancestor.WorkItemType == "Bug")
+                        else if (ancestor.WorkItemType == "Product Backlog Item" || ancestor.WorkItemType == "Bug" || ancestor.WorkItemType == "Glitch")
                         {
-                            // Find Features that are parents of this PBI/Bug
+                            
+                            // Find Feature parents of this PBI (PBI → Feature hierarchy)
                             var featureParentsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
                                             FROM WorkItemLinks
                                             WHERE [Source].[System.Id] = {ancestor.Id}
                                             AND [Source].[System.TeamProject] = 'PCLabs'
                                             AND [Target].[System.TeamProject] = 'PCLabs'
                                             AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
-                                            AND [Target].[System.WorkItemType] IN ('Feature', 'Epic')
+                                            AND [Target].[System.WorkItemType] = 'Feature'
                                             AND [Target].[System.Id] <> {ancestor.Id}";
 
                             var featureParents = await client.QueryWorkItemsByWiql(featureParentsQuery);
@@ -671,16 +687,128 @@ namespace Lamdat.Aggregation.Scripts
                                 {
                                     affectedFeatures.Add(parent.Id);
                                 }
-                                else if (parent.WorkItemType == "Epic")
-                                {
-                                    affectedEpics.Add(parent.Id);
-                                }
                             }
+                            if (ancestor.WorkItemType == "Product Backlog Item")
+                            {
+                                affectedPBIs.Add(ancestor.Id);
+
+                            }
+                            else if (ancestor.WorkItemType == "Bug")
+                            {
+                                affectedBugs.Add(ancestor.Id);
+
+
+                            }
+                            else if (ancestor.WorkItemType == "Glitch")
+                            {
+                                affectedGlitches.Add(ancestor.Id);
+                            }
+                        }                                              
+                    }
+                }
+
+                // Now find Epic parents of all affected Features (Feature → Epic hierarchy)
+                foreach (var featureId in affectedFeatures.ToList()) // ToList to avoid modification during iteration
+                {
+                    var epicParentsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                                    FROM WorkItemLinks
+                                    WHERE [Source].[System.Id] = {featureId}
+                                    AND [Source].[System.TeamProject] = 'PCLabs'
+                                    AND [Target].[System.TeamProject] = 'PCLabs'
+                                    AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
+                                    AND [Target].[System.WorkItemType] = 'Epic'
+                                    AND [Target].[System.Id] <> {featureId}";
+
+                    var epicParents = await client.QueryWorkItemsByWiql(epicParentsQuery);
+                    foreach (var parent in epicParents)
+                    {
+                        // Additional safety check
+                        if (parent.Id == featureId) continue;
+
+                        if (parent.WorkItemType == "Epic")
+                        {
+                            affectedEpics.Add(parent.Id);
                         }
                     }
                 }
 
-                Logger.Information($"Found {affectedFeatures.Count} features and {affectedEpics.Count} epics needing completed work re-aggregation");
+                Logger.Information($"Found {affectedPBIs.Count} PBIs, {affectedBugs.Count} bugs, {affectedGlitches.Count} glitches, {affectedFeatures.Count} features and {affectedEpics.Count} epics needing completed work re-aggregation");
+
+
+                // Re-aggregate completed work for affected PBIs
+                foreach (var pbiId in affectedPBIs)
+                {
+                    try
+                    {
+                        var pbiWorkItem = await client.GetWorkItem(pbiId);
+                        if (pbiWorkItem == null) continue;
+
+                        Logger.Debug($"Re-aggregating completed work for PBI {pbiId}: {pbiWorkItem.Title}");
+
+                        // Calculate completed work from child tasks
+                        var pbiCompletedWork = await CalculateCompletedWorkAggregation(pbiWorkItem, disciplineMappings, client);
+
+                        // Update PBI with aggregated completed work
+                        await UpdateWorkItemWithCompletedWorkAggregation(pbiWorkItem, pbiCompletedWork, client);
+
+                        stats["PBIsUpdated"]++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warning($"Error re-aggregating PBI {pbiId} completed work: {ex.Message}");
+                        stats["Errors"]++;
+                    }
+                }
+
+                // Re-aggregate completed work for affected Bugs
+                foreach (var bugId in affectedBugs)
+                {
+                    try
+                    {
+                        var bugWorkItem = await client.GetWorkItem(bugId);
+                        if (bugWorkItem == null) continue;
+
+                        Logger.Debug($"Re-aggregating completed work for Bug {bugId}: {bugWorkItem.Title}");
+
+                        // Calculate completed work from child tasks
+                        var bugCompletedWork = await CalculateCompletedWorkAggregation(bugWorkItem, disciplineMappings, client);
+
+                        // Update Bug with aggregated completed work
+                        await UpdateWorkItemWithCompletedWorkAggregation(bugWorkItem, bugCompletedWork, client);
+
+                        stats["BugsUpdated"]++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warning($"Error re-aggregating Bug {bugId} completed work: {ex.Message}");
+                        stats["Errors"]++;
+                    }
+                }
+
+                // Re-aggregate completed work for affected Glitches
+                foreach (var glitchId in affectedGlitches)
+                {
+                    try
+                    {
+                        var glitchWorkItem = await client.GetWorkItem(glitchId);
+                        if (glitchWorkItem == null) continue;
+
+                        Logger.Debug($"Re-aggregating completed work for Glitch {glitchId}: {glitchWorkItem.Title}");
+
+                        // Calculate completed work from child tasks
+                        var glitchCompletedWork = await CalculateCompletedWorkAggregation(glitchWorkItem, disciplineMappings, client);
+
+                        // Update Glitch with aggregated completed work
+                        await UpdateWorkItemWithCompletedWorkAggregation(glitchWorkItem, glitchCompletedWork, client);
+
+                        stats["GlitchesUpdated"]++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warning($"Error re-aggregating Glitch {glitchId} completed work: {ex.Message}");
+                        stats["Errors"]++;
+                    }
+                }
 
                 // Re-aggregate completed work for affected Features
                 foreach (var featureId in affectedFeatures)
@@ -692,7 +820,7 @@ namespace Lamdat.Aggregation.Scripts
 
                         Logger.Debug($"Re-aggregating completed work for Feature {featureId}: {featureWorkItem.Title}");
 
-                        // Calculate completed work from all descendant tasks (through PBI/Bug children)
+                        // Calculate completed work from all descendant tasks (through PBI/Bug/Glitch children)
                         var featureCompletedWork = await CalculateFeatureCompletedWorkFromAllDescendants(featureWorkItem, disciplineMappings, client);
 
                         // Update Feature with aggregated completed work
@@ -717,7 +845,7 @@ namespace Lamdat.Aggregation.Scripts
 
                         Logger.Debug($"Re-aggregating completed work for Epic {epicId}: {epicWorkItem.Title}");
 
-                        // Calculate completed work from all descendant tasks (through Feature/PBI/Bug children)
+                        // Calculate completed work from all descendant tasks (through Feature/PBI/Bug/Glitch children)
                         var epicCompletedWork = await CalculateEpicCompletedWorkFromAllDescendants(epicWorkItem, disciplineMappings, client);
 
                         // Update Epic completed work fields only (estimation/remaining handled elsewhere)
@@ -754,15 +882,15 @@ namespace Lamdat.Aggregation.Scripts
                     ["OthersCompletedWork"] = 0
                 };
 
-                // Step 1: Get all PBI/Bug children of this Feature
-                // Note: We exclude the feature itself from results to ensure we only get actual child PBIs/Bugs
+                // Step 1: Get all PBI/Bug/Glitch children of this Feature
+                // Note: We exclude the feature itself from results to ensure we only get actual child PBIs/Bugs/Glitches
                 var childPBIsQuery = $@"SELECT [Target].[System.Id]
                            FROM WorkItemLinks
                            WHERE [Source].[System.Id] = {featureItem.Id}
                            AND [Source].[System.TeamProject] = 'PCLabs'
                            AND [Target].[System.TeamProject] = 'PCLabs'
                            AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                           AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug')
+                           AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch')
                            AND [Target].[System.Id] <> {featureItem.Id}";
 
                 var childPBIs = await client.QueryWorkItemsByWiql(childPBIsQuery);
@@ -786,7 +914,7 @@ namespace Lamdat.Aggregation.Scripts
 
                     foreach (var task in tasks)
                     {
-                        // Additional safety check to ensure we don't include the PBI itself
+                        // Additional safety check to ensure we don't include the PBI/Bug/Glitch itself
                         if (task.Id == pbi.Id) continue;
 
                         var completedWork = task.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
