@@ -45,14 +45,22 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
         [Fact]
         public async Task ScheduledScript_ShouldCorrectlyFormatHierarchicalAggregationQueries()
         {
-            // Arrange - Create test data and verify hierarchical aggregation queries work
+            // Arrange - Clear any existing test data first
+            ClearTestData();
+            
+            // Create test data and verify hierarchical aggregation queries work
             var task = CreateTestWorkItem("Task", "Test Task", "Done");
             task.SetField("Microsoft.VSTS.Scheduling.CompletedWork", 8.0);
             task.SetField("Microsoft.VSTS.Common.Activity", "Development");
             task.SetField("System.TeamProject", "PCLabs");
+            
+            // Set the changed date to today to ensure it gets picked up by the date filter
+            var today = DateTime.Now;
+            task.SetField("System.ChangedDate", today);
 
             var pbi = CreateTestWorkItem("Product Backlog Item", "Test PBI", "Active");
             pbi.SetField("System.TeamProject", "PCLabs");
+            // Don't set changed date for PBI - it should not appear in either query
 
             // Script that mimics the corrected hierarchical aggregation pattern
             var script = @"

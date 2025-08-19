@@ -99,47 +99,53 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
             var isHierarchyReverse = wiql.Contains("Hierarchy-Reverse");
             var isHierarchyForward = wiql.Contains("Hierarchy-Forward");
             
-            // Extract work item ID from WHERE clause
-            var workItemId = ExtractWorkItemIdFromQuery(wiql);
-            if (workItemId == null) return results;
+            // Extract work item ID(s) from WHERE clause
+            var workItemIds = ExtractWorkItemIdsFromQuery(wiql);
+            if (workItemIds.Count == 0) return results;
             
             if (isHierarchyReverse)
             {
-                // Find parents: WHERE [Target].[System.Id] = {childId}
-                // Look for work items that have this ID as a child
-                foreach (var kvp in _workItems)
+                // Find parents: WHERE [Source].[System.Id] IN (childIds)
+                // Look for work items that have these IDs as children
+                foreach (var workItemId in workItemIds)
                 {
-                    var workItem = kvp.Value;
-                    var hasChildRelation = workItem.Relations.Any(r => 
-                        r.RelationType == "Child" && r.RelatedWorkItemId == workItemId);
-                    
-                    if (hasChildRelation)
+                    foreach (var kvp in _workItems)
                     {
-                        // Create a result work item with the fields expected by the query
-                        var resultItem = CreateQueryResultWorkItem(workItem, wiql);
-                        if (resultItem != null)
+                        var workItem = kvp.Value;
+                        var hasChildRelation = workItem.Relations.Any(r => 
+                            r.RelationType == "Child" && r.RelatedWorkItemId == workItemId);
+                        
+                        if (hasChildRelation)
                         {
-                            results.Add(resultItem);
+                            // Create a result work item with the fields expected by the query
+                            var resultItem = CreateQueryResultWorkItem(workItem, wiql);
+                            if (resultItem != null && !results.Any(r => r.Id == resultItem.Id))
+                            {
+                                results.Add(resultItem);
+                            }
                         }
                     }
                 }
             }
             else if (isHierarchyForward)
             {
-                // Find children: WHERE [Source].[System.Id] = {parentId}
-                // Look for work items that are children of this parent
-                var parentWorkItem = _workItems.Values.FirstOrDefault(w => w.Id == workItemId);
-                if (parentWorkItem != null)
+                // Find children: WHERE [Source].[System.Id] IN (parentIds)
+                // Look for work items that are children of these parents
+                foreach (var workItemId in workItemIds)
                 {
-                    foreach (var relation in parentWorkItem.Relations.Where(r => r.RelationType == "Child"))
+                    var parentWorkItem = _workItems.Values.FirstOrDefault(w => w.Id == workItemId);
+                    if (parentWorkItem != null)
                     {
-                        var childWorkItem = _workItems.Values.FirstOrDefault(w => w.Id == relation.RelatedWorkItemId);
-                        if (childWorkItem != null)
+                        foreach (var relation in parentWorkItem.Relations.Where(r => r.RelationType == "Child"))
                         {
-                            var resultItem = CreateQueryResultWorkItem(childWorkItem, wiql);
-                            if (resultItem != null)
+                            var childWorkItem = _workItems.Values.FirstOrDefault(w => w.Id == relation.RelatedWorkItemId);
+                            if (childWorkItem != null && !results.Any(r => r.Id == childWorkItem.Id))
                             {
-                                results.Add(resultItem);
+                                var resultItem = CreateQueryResultWorkItem(childWorkItem, wiql);
+                                if (resultItem != null && !results.Any(r => r.Id == resultItem.Id))
+                                {
+                                    results.Add(resultItem);
+                                }
                             }
                         }
                     }
@@ -149,25 +155,45 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
             return results;
         }
 
-        private int? ExtractWorkItemIdFromQuery(string wiql)
+        private List<int> ExtractWorkItemIdsFromQuery(string wiql)
         {
-            // Extract ID from patterns like [Target].[System.Id] = 1234 or [Source].[System.Id] = 1234
+            var ids = new List<int>();
+            
+            // Extract IDs from patterns like [Target].[System.Id] = 1234, [Source].[System.Id] = 1234, or IN clauses
             var patterns = new[]
             {
                 @"\[Target\]\.\[System\.Id\]\s*=\s*(\d+)",
-                @"\[Source\]\.\[System\.Id\]\s*=\s*(\d+)"
+                @"\[Source\]\.\[System\.Id\]\s*=\s*(\d+)",
+                @"\[Target\]\.\[System\.Id\]\s*IN\s*\(([^)]+)\)",
+                @"\[Source\]\.\[System\.Id\]\s*IN\s*\(([^)]+)\)"
             };
             
             foreach (var pattern in patterns)
             {
                 var match = System.Text.RegularExpressions.Regex.Match(wiql, pattern);
-                if (match.Success && int.TryParse(match.Groups[1].Value, out var id))
+                if (match.Success)
                 {
-                    return id;
+                    if (pattern.Contains("IN"))
+                    {
+                        // Handle IN clause - extract all IDs
+                        var idsString = match.Groups[1].Value;
+                        var idStrings = idsString.Split(',').Select(s => s.Trim()).ToArray();
+                        foreach (var idString in idStrings)
+                        {
+                            if (int.TryParse(idString, out var id))
+                            {
+                                ids.Add(id);
+                            }
+                        }
+                    }
+                    else if (int.TryParse(match.Groups[1].Value, out var id))
+                    {
+                        ids.Add(id);
+                    }
                 }
             }
             
-            return null;
+            return ids;
         }
 
         private WorkItem? CreateQueryResultWorkItem(WorkItem sourceWorkItem, string wiql)
@@ -331,14 +357,22 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
             // Handle simple WorkItems queries
             if (wiqlQuery.Contains("FROM WorkItems"))
             {
-                // Extract work item type from WIQL query
-                var workItemTypes = new[] { "Bug", "Task", "User Story", "Product Backlog Item", "Feature", "Epic" };
+                // Start with all work items
+                results.AddRange(_workItems.Values);
                 
-                foreach (var type in workItemTypes)
+                // Handle work item type filtering - look for exact type matches in WHERE clause
+                if (wiqlQuery.Contains("[System.WorkItemType] ="))
                 {
-                    if (wiqlQuery.Contains($"'{type}'") || wiqlQuery.Contains($"\"{type}\""))
+                    var workItemTypes = new[] { "Bug", "Task", "User Story", "Product Backlog Item", "Feature", "Epic", "Glitch" };
+                    
+                    foreach (var type in workItemTypes)
                     {
-                        results.AddRange(_workItems.Values.Where(w => w.WorkItemType == type));
+                        if (wiqlQuery.Contains($"[System.WorkItemType] = '{type}'") || 
+                            wiqlQuery.Contains($"[System.WorkItemType] = \"{type}\""))
+                        {
+                            results = results.Where(w => w.WorkItemType == type).ToList();
+                            break; // Only one type per query
+                        }
                     }
                 }
                 
@@ -348,11 +382,25 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
                     results = results.Where(w => w.GetField<string>("System.TeamProject") == "PCLabs").ToList();
                 }
                 
-                // Handle date filtering (simplified)
+                // Handle date filtering - for testing, return items that have been recently updated
                 if (wiqlQuery.Contains("[System.ChangedDate] >="))
                 {
-                    // For testing purposes, return a subset of results
-                    results = results.Take(Math.Max(1, results.Count / 2)).ToList();
+                    var today = DateTime.Now.Date;
+                    results = results.Where(w => 
+                    {
+                        var changedDate = w.GetField<DateTime?>("System.ChangedDate");
+                        return changedDate.HasValue && changedDate.Value.Date >= today;
+                    }).ToList();
+                }
+                
+                // Handle completed work filtering - filter by completed work > 0
+                if (wiqlQuery.Contains("[Microsoft.VSTS.Scheduling.CompletedWork] > 0"))
+                {
+                    results = results.Where(w => 
+                    {
+                        var completedWork = w.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork");
+                        return completedWork.HasValue && completedWork.Value > 0;
+                    }).ToList();
                 }
             }
             // Handle WorkItemLinks queries by delegating to existing logic

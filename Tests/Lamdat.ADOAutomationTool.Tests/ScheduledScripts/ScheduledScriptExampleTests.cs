@@ -174,8 +174,8 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                 
                 for (int i = 0; i < 100; i++)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    await Task.Delay(10, cancellationToken);
+                    CancellationToken.ThrowIfCancellationRequested();
+                    await Task.Delay(10, CancellationToken);
                     Logger.Information($""Iteration {i}"");
                 }
                 
