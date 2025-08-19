@@ -97,7 +97,7 @@ var memoryCleaner = app.Services.GetRequiredService<IMemoryCleaner>();
 memoryCleaner.Activate();
 
 var scheduledTaskService = app.Services.GetRequiredService<IScheduledTaskService>();
-scheduledTaskService.Start();
+await scheduledTaskService.Start();
 
 AppDomain.CurrentDomain.UnhandledException += (sender, eventArgs) =>
 {

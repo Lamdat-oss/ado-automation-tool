@@ -1,3 +1,4 @@
+using Lamdat.ADOAutomationTool.Entities;
 using Lamdat.ADOAutomationTool.ScriptEngine;
 
 namespace Lamdat.ADOAutomationTool.Tests.Framework

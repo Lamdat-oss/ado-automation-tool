@@ -313,6 +313,144 @@ namespace Lamdat.ADOAutomationTool.Service
             }
         }
 
+        /// <summary>
+        /// Executes a simple WIQL query and returns work items directly without relationship processing
+        /// </summary>
+        /// <param name="wiqlQuery">The WIQL query string (e.g., "SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Task'")</param>
+        /// <param name="top">Optional maximum number of work items to return</param>
+        /// <returns>List of work items matching the query</returns>
+        public async Task<List<WorkItem>> QueryWorkItemsByWiql(string wiqlQuery, int? top = null)
+        {
+            if (string.IsNullOrWhiteSpace(wiqlQuery))
+                throw new ArgumentException("WIQL query cannot be null or empty", nameof(wiqlQuery));
+
+            if (Project == "be9b3917-87e6-42a4-a549-2bc06a7a878f") // ADO Test 
+                return new List<WorkItem>();
+
+            try
+            {
+                var url = $"{_collectionURL}/{Project}/_apis/wit/wiql?";
+
+                if (top.HasValue && top > 0)
+                {
+                    url += $"$top={top}&";
+                }
+                
+                url += $"api-version={_apiVersion}";
+                
+                var wiql = new { query = wiqlQuery };
+                var postValue = new StringContent(JsonConvert.SerializeObject(wiql), Encoding.UTF8, "application/json");
+
+                var method = new HttpMethod("POST");
+                var httpRequestMessage = new HttpRequestMessage(method, url) { Content = postValue };
+                var httpResponseMessage = await _client.SendAsync(httpRequestMessage);
+
+                if (httpResponseMessage.IsSuccessStatusCode)
+                {
+                    var jsonString = await httpResponseMessage.Content.ReadAsStringAsync();
+                    var result = JsonConvert.DeserializeObject<WiqlQueryResult>(jsonString);
+
+                    if (result == null)
+                    {
+                        _logger.Error($"Failed to execute WIQL query. Unexpected API response format: {jsonString}");
+                        return new List<WorkItem>();
+                    }
+
+                    // Handle simple work item queries (FROM WorkItems)
+                    if (result.WorkItems != null && result.WorkItems.Count > 0)
+                    {
+                        return await GetWorkItemsFromIds(result.WorkItems.Select(wi => wi.ID).ToList());
+                    }
+
+                    // Handle work item link queries (FROM WorkItemLinks) - extract work item IDs from relationships
+                    if (result.WorkItemRelations != null && result.WorkItemRelations.Count > 0)
+                    {
+                        var workItemIds = new HashSet<int>();
+                        
+                        foreach (var relation in result.WorkItemRelations)
+                        {
+                            if (relation.Source?.ID > 0)
+                                workItemIds.Add(relation.Source.ID);
+                            if (relation.Target?.ID > 0)
+                                workItemIds.Add(relation.Target.ID);
+                        }
+
+                        return await GetWorkItemsFromIds(workItemIds.ToList());
+                    }
+
+                    return new List<WorkItem>();
+                }
+                else
+                {
+                    var errorMessage = $"Failed to execute WIQL query: {wiqlQuery}";
+                    if (httpResponseMessage.Content != null)
+                    {
+                        var errorContent = await httpResponseMessage.Content.ReadAsStringAsync();
+                        errorMessage += $" Error: {errorContent}";
+                    }
+                    _logger.Error(errorMessage);
+                    return new List<WorkItem>();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Error executing WIQL query '{wiqlQuery}': {ex.Message}");
+                return new List<WorkItem>();
+            }
+        }
+
+        /// <summary>
+        /// Helper method to get work items from a list of IDs
+        /// </summary>
+        /// <param name="workItemIds">List of work item IDs</param>
+        /// <returns>List of work items</returns>
+        private async Task<List<WorkItem>> GetWorkItemsFromIds(List<int> workItemIds)
+        {
+            if (workItemIds == null || workItemIds.Count == 0)
+                return new List<WorkItem>();
+
+            var workItems = new List<WorkItem>();
+            const int batchSize = 200; // Azure DevOps API limit for batch requests
+
+            for (int i = 0; i < workItemIds.Count; i += batchSize)
+            {
+                var batchIds = workItemIds.Skip(i).Take(batchSize).ToList();
+                var ids = string.Join(",", batchIds);
+                
+                try
+                {
+                    var url = $"{_collectionURL}/{Project}/_apis/wit/workitems?ids={ids}&$expand=All&api-version={_apiVersion}";
+                    var response = await _client.GetAsync(url);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var jsonString = await response.Content.ReadAsStringAsync();
+                        var result = JsonConvert.DeserializeObject<QueryResult<WorkItem>>(jsonString);
+
+                        if (result?.Value != null)
+                        {
+                            foreach (var workItem in result.Value)
+                            {
+                                SetWorkItemRelationsAndSaveSystemConnection(workItem);
+                                workItems.Add(workItem);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        var errorContent = await response.Content.ReadAsStringAsync();
+                        _logger.Warning($"Failed to retrieve work items batch {i}-{i + batchSize}: {errorContent}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"Error retrieving work items batch {i}-{i + batchSize}: {ex.Message}");
+                }
+            }
+
+            return workItems;
+        }
+
         public async Task<ADOUser> WhoAmI()
         {
             try

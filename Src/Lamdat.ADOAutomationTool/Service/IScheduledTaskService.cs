@@ -1,11 +1,12 @@
 using System.Collections.Generic;
-using Lamdat.ADOAutomationTool.ScriptEngine;
+using System.Threading.Tasks;
+using Lamdat.ADOAutomationTool.Entities;
 
 namespace Lamdat.ADOAutomationTool.Service
 {
     public interface IScheduledTaskService
     {
-        void Start();
+        Task Start();
         void Stop();
         bool IsRunning { get; }
         

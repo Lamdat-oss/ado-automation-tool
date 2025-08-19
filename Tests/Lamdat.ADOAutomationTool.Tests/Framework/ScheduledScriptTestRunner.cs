@@ -85,7 +85,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
         /// <summary>
         /// Try to execute script as an interval-aware script
         /// </summary>
-        private async Task<ScheduledScriptResult?> TryExecuteAsIntervalScript(string scriptCode, CancellationToken cancellationToken)
+        private async Task<Lamdat.ADOAutomationTool.Entities.ScheduledScriptResult?> TryExecuteAsIntervalScript(string scriptCode, CancellationToken cancellationToken)
         {
             try
             {
@@ -166,18 +166,19 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
             stringBuilder.AppendLine(@"
 using Lamdat.ADOAutomationTool.Entities;
 using Lamdat.ADOAutomationTool.Service;
-using Lamdat.ADOAutomationTool.ScriptEngine;
 using Serilog;
 using System.Collections;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System;
 
-public async Task<ScheduledScriptResult> RunWithInterval(IAzureDevOpsClient Client, ILogger Logger, CancellationToken cancellationToken, string ScriptRunId, DateTime LastRun)
-{");
+public async Task<ScheduledScriptResult> RunWithInterval(IAzureDevOpsClient Client, ILogger Logger, CancellationToken CancellationToken, string ScriptRunId, DateTime LastRun)
+{
+    var Token = CancellationToken;");
             stringBuilder.AppendLine(scriptCode);
             stringBuilder.AppendLine("}");
             
@@ -193,14 +194,16 @@ using Lamdat.ADOAutomationTool.Service;
 using Serilog;
 using System.Collections;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System;
 
-public async Task Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken cancellationToken, string ScriptRunId, DateTime LastRun)
-{");
+public async Task Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken CancellationToken, string ScriptRunId, DateTime LastRun)
+{
+    var Token = CancellationToken;");
             stringBuilder.AppendLine(scriptCode);
             stringBuilder.AppendLine("}");
             

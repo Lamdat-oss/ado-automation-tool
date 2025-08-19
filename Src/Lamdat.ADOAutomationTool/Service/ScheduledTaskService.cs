@@ -47,16 +47,45 @@ namespace Lamdat.ADOAutomationTool.Service
             _timer.AutoReset = true;
         }
 
-        public void Start()
+        public async Task Start()
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(ScheduledTaskService));
 
             if (!_timer.Enabled)
             {
-                _timer.Start();
-                _logger.Information($"Scheduled Task Service started. Will check for scripts to execute every {_timer.Interval / 60000:F1} minutes.");
+                _logger.Information($"Scheduled Task Service starting. Will check for scripts to execute every {_timer.Interval / 60000:F1} minutes.");
                 _logger.Information("Scripts can now define their own execution intervals. The service will execute scripts when their individual intervals have elapsed.");
+                
+                // Execute scheduled tasks immediately on startup
+                _logger.Information("Executing scheduled tasks immediately on startup...");
+                
+                // Use the same execution guard as the timer to prevent race conditions
+                if (!_isExecuting)
+                {
+                    _isExecuting = true;
+                    try
+                    {
+                        await ExecuteScheduledTasks();
+                        _logger.Information("Initial scheduled tasks execution completed.");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Error(ex, "Error occurred during initial scheduled task execution on startup");
+                    }
+                    finally
+                    {
+                        _isExecuting = false;
+                    }
+                }
+                else
+                {
+                    _logger.Warning("Scheduled tasks execution already in progress during startup, skipping initial execution.");
+                }
+                
+                // Start the timer for regular interval execution
+                _timer.Start();
+                _logger.Information("Scheduled Task Service started and timer enabled for regular intervals.");
             }
         }
 
@@ -141,7 +170,7 @@ namespace Lamdat.ADOAutomationTool.Service
         /// </summary>
         private IContext CreateScheduledContext()
         {
-            return new Context(_azureDevOpsClient, _logger)
+            var context = new Context(_azureDevOpsClient, _logger)
             {
                 ScriptExecutionTimeoutSeconds = _settings.ScriptExecutionTimeoutSeconds,
                 EventType = "ScheduledTask",
@@ -160,6 +189,8 @@ namespace Lamdat.ADOAutomationTool.Service
                 WebHookResource = new WebHookResourceUpdate(),
                 ScriptRunId = Guid.NewGuid().ToString("N")[..8] // Short run ID for scheduled tasks
             };
+            
+            return context;
         }
 
         /// <summary>
