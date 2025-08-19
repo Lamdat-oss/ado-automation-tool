@@ -13,7 +13,7 @@ namespace Lamdat.Aggregation.Scripts
     internal class AggregationScriptRunner
     {
 
-        public static async Task<ScheduledScriptResult> Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken Token, string ScriptRunId, DateTime LastRun)
+        public static async Task<ScheduledScriptResult> Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken CancellationToken, string ScriptRunId, DateTime LastRun)
         {
 
             // Hierarchical Work Item Aggregation Task
@@ -23,7 +23,6 @@ namespace Lamdat.Aggregation.Scripts
             // Runs every 10 minutes to process work items that have changed since last run
             //
             // NOTE: This script is specifically designed for PCLabs Ltd and sets Client.Project = "PCLabs"
-            // For other customers, either modify this script or create a separate version
 
             Logger.Information("Starting hierarchical work item aggregation...");
             Logger.Information($"Processing changes since: {LastRun:yyyy-MM-dd HH:mm:ss}");
@@ -122,7 +121,7 @@ namespace Lamdat.Aggregation.Scripts
                 {
                     await ProcessTopDownAggregation(changedFeatures, aggregationStats, Client);
                 }
-                 
+
                 // Log aggregation results
                 Logger.Information($"Hierarchical aggregation completed:");
                 Logger.Information($"  - Features processed: {aggregationStats["FeaturesProcessed"]}");
@@ -198,7 +197,7 @@ namespace Lamdat.Aggregation.Scripts
 
                 Logger.Information($"Found {affectedEpics.Count} epic work items affected by feature changes");
 
-                await Parallel.ForEachAsync(affectedEpics, Token, async (epicId, ct) =>
+                await Parallel.ForEachAsync(affectedEpics, CancellationToken, async (epicId, ct) =>
                 {
                     try
                     {
@@ -213,8 +212,8 @@ namespace Lamdat.Aggregation.Scripts
 
                 stats["FeaturesProcessed"] = changedFeatures.Count;
             }
-                        
-          
+
+
             // Process Epic estimation and remaining work aggregation from Features
             async Task ProcessEpicEstimationAggregation(int epicId, IAzureDevOpsClient client)
             {
@@ -363,7 +362,7 @@ namespace Lamdat.Aggregation.Scripts
                     allWorkItemsWithTasks.Add(item);
 
                 // With this block:
-                await Parallel.ForEachAsync(allWorkItemsWithTasks, Token, async (pbiId, ct) =>
+                await Parallel.ForEachAsync(allWorkItemsWithTasks, CancellationToken, async (pbiId, ct) =>
                 {
                     try
                     {
@@ -404,7 +403,7 @@ namespace Lamdat.Aggregation.Scripts
 
 
                 // Re-aggregate completed work for affected Features
-                await Parallel.ForEachAsync(affectedFeatures, Token, async (featureId, ct) =>
+                await Parallel.ForEachAsync(affectedFeatures, CancellationToken, async (featureId, ct) =>
                 {
                     try
                     {
@@ -431,7 +430,7 @@ namespace Lamdat.Aggregation.Scripts
                 });
 
                 // Re-aggregate completed work for affected Epics
-                await Parallel.ForEachAsync(affectedEpics, Token, async (epicId, ct) =>
+                await Parallel.ForEachAsync(affectedEpics, CancellationToken, async (epicId, ct) =>
                 {
                     try
                     {
@@ -797,7 +796,6 @@ namespace Lamdat.Aggregation.Scripts
 
 
         }
-
     }
 }
 

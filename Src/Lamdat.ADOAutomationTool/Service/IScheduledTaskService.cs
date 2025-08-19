@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Lamdat.ADOAutomationTool.ScriptEngine;
+using Lamdat.ADOAutomationTool.Entities;
 
 namespace Lamdat.ADOAutomationTool.Service
 {

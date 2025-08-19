@@ -28,12 +28,12 @@ Add these custom fields to your Azure DevOps project work item types:
 ### For Feature Work Item Type:
 
 #### Manual Input Fields (entered by users):
-- `Custom.Estimation.TotalEffortEstimation` (Decimal) - Total effort estimation
-- `Custom.Estimation.DevelopmentEffortEstimation` (Decimal) - Development effort estimation
-- `Custom.Estimation.QAEffortEstimation` (Decimal) - QA effort estimation
-- `Custom.Estimation.POEffortEstimation` (Decimal) - Product Owner effort estimation
-- `Custom.Estimation.AdminEffortEstimation` (Decimal) - Admin effort estimation
-- `Custom.Estimation.OthersEffortEstimation` (Decimal) - Others effort estimation
+- `Custom.TotalEffortEstimation` (Decimal) - Total effort estimation
+- `Custom.DevelopmentEffortEstimation` (Decimal) - Development effort estimation
+- `Custom.QAEffortEstimation` (Decimal) - QA effort estimation
+- `Custom.POEffortEstimation` (Decimal) - Product Owner effort estimation
+- `Custom.AdminEffortEstimation` (Decimal) - Admin effort estimation
+- `Custom.OthersEffortEstimation` (Decimal) - Others effort estimation
 
 #### Manual Remaining Fields (entered by users):
 - `Custom.Remaining.TotalRemainingEstimation` (Decimal) - Total remaining estimation
@@ -44,23 +44,23 @@ Add these custom fields to your Azure DevOps project work item types:
 - `Custom.Remaining.OthersRemainingEstimation` (Decimal) - Others remaining estimation
 
 #### Auto-Calculated Completed Work Fields:
-- `Custom.Aggregation.TotalCompletedWork` (Decimal) - Total completed work from child tasks
-- `Custom.Aggregation.DevelopmentCompletedWork` (Decimal) - Development completed work
-- `Custom.Aggregation.QACompletedWork` (Decimal) - QA completed work
-- `Custom.Aggregation.POCompletedWork` (Decimal) - Product Owner completed work
-- `Custom.Aggregation.AdminCompletedWork` (Decimal) - Admin completed work
-- `Custom.Aggregation.OthersCompletedWork` (Decimal) - Others completed work
-- `Custom.Aggregation.LastUpdated` (DateTime) - Last aggregation update timestamp
+- `Custom.TotalCompletedWork` (Decimal) - Total completed work from child tasks
+- `Custom.DevelopmentCompletedWork` (Decimal) - Development completed work
+- `Custom.QACompletedWork` (Decimal) - QA completed work
+- `Custom.POCompletedWork` (Decimal) - Product Owner completed work
+- `Custom.AdminCompletedWork` (Decimal) - Admin completed work
+- `Custom.OthersCompletedWork` (Decimal) - Others completed work
+- `Custom.LastUpdated` (DateTime) - Last aggregation update timestamp
 
 ### For Epic Work Item Type:
 
 #### Auto-Calculated Estimation Fields (aggregated from Features):
-- `Custom.Estimation.TotalEffortEstimation` (Decimal) - Total effort estimation from all Features
-- `Custom.Estimation.DevelopmentEffortEstimation` (Decimal) - Development effort from all Features
-- `Custom.Estimation.QAEffortEstimation` (Decimal) - QA effort from all Features
-- `Custom.Estimation.POEffortEstimation` (Decimal) - Product Owner effort from all Features
-- `Custom.Estimation.AdminEffortEstimation` (Decimal) - Admin effort from all Features
-- `Custom.Estimation.OthersEffortEstimation` (Decimal) - Others effort from all Features
+- `Custom.TotalEffortEstimation` (Decimal) - Total effort estimation from all Features
+- `Custom.DevelopmentEffortEstimation` (Decimal) - Development effort from all Features
+- `Custom.QAEffortEstimation` (Decimal) - QA effort from all Features
+- `Custom.POEffortEstimation` (Decimal) - Product Owner effort from all Features
+- `Custom.AdminEffortEstimation` (Decimal) - Admin effort from all Features
+- `Custom.OthersEffortEstimation` (Decimal) - Others effort from all Features
 
 #### Auto-Calculated Remaining Fields (aggregated from Features):
 - `Custom.Remaining.TotalRemainingEstimation` (Decimal) - Total remaining from all Features
@@ -71,24 +71,24 @@ Add these custom fields to your Azure DevOps project work item types:
 - `Custom.Remaining.OthersRemainingEstimation` (Decimal) - Others remaining from all Features
 
 #### Auto-Calculated Completed Work Fields (aggregated from all children):
-- `Custom.Aggregation.TotalCompletedWork` (Decimal) - Total completed work from all descendant tasks
-- `Custom.Aggregation.DevelopmentCompletedWork` (Decimal) - Development completed work
-- `Custom.Aggregation.QACompletedWork` (Decimal) - QA completed work
-- `Custom.Aggregation.POCompletedWork` (Decimal) - Product Owner completed work
-- `Custom.Aggregation.AdminCompletedWork` (Decimal) - Admin completed work
-- `Custom.Aggregation.OthersCompletedWork` (Decimal) - Others completed work
-- `Custom.Aggregation.LastUpdated` (DateTime) - Last aggregation update timestamp
+- `Custom.TotalCompletedWork` (Decimal) - Total completed work from all descendant tasks
+- `Custom.DevelopmentCompletedWork` (Decimal) - Development completed work
+- `Custom.QACompletedWork` (Decimal) - QA completed work
+- `Custom.POCompletedWork` (Decimal) - Product Owner completed work
+- `Custom.AdminCompletedWork` (Decimal) - Admin completed work
+- `Custom.OthersCompletedWork` (Decimal) - Others completed work
+- `Custom.LastUpdated` (DateTime) - Last aggregation update timestamp
 
 ### For Product Backlog Item and Bug Work Item Types:
 
 #### Auto-Calculated Completed Work Fields (aggregated from child Tasks):
-- `Custom.Aggregation.TotalCompletedWork` (Decimal) - Total completed work from child tasks
-- `Custom.Aggregation.DevelopmentCompletedWork` (Decimal) - Development completed work
-- `Custom.Aggregation.QACompletedWork` (Decimal) - QA completed work
-- `Custom.Aggregation.POCompletedWork` (Decimal) - Product Owner completed work
-- `Custom.Aggregation.AdminCompletedWork` (Decimal) - Admin completed work
-- `Custom.Aggregation.OthersCompletedWork` (Decimal) - Others completed work
-- `Custom.Aggregation.LastUpdated` (DateTime) - Last aggregation update timestamp
+- `Custom.TotalCompletedWork` (Decimal) - Total completed work from child tasks
+- `Custom.DevelopmentCompletedWork` (Decimal) - Development completed work
+- `Custom.QACompletedWork` (Decimal) - QA completed work
+- `Custom.POCompletedWork` (Decimal) - Product Owner completed work
+- `Custom.AdminCompletedWork` (Decimal) - Admin completed work
+- `Custom.OthersCompletedWork` (Decimal) - Others completed work
+- `Custom.LastUpdated` (DateTime) - Last aggregation update timestamp
 
 ## Activity to Discipline Mapping
 
@@ -181,9 +181,9 @@ Update your `appsettings.json`:
 1. **Create Epic** with high-level goals
 2. **Create Features** under Epic
 3. **Enter estimation by discipline** on Features:
-   - `Custom.Estimation.DevelopmentEffortEstimation`
-   - `Custom.Estimation.QAEffortEstimation`
-   - `Custom.Estimation.POEffortEstimation`
+   - `Custom.DevelopmentEffortEstimation`
+   - `Custom.QAEffortEstimation`
+   - `Custom.POEffortEstimation`
    - etc.
 4. **Update remaining work** on Features as work progresses
 5. **View aggregated totals** on Epic automatically
@@ -199,14 +199,14 @@ Update your `appsettings.json`:
 
 1. **Add Custom Fields**: Create all the custom fields listed above for each work item type
 2. **Set Field Permissions**: Ensure aggregation fields are read-only for users (auto-calculated)
-3. **Deploy Script**: Place `08-hierarchical-aggregation.rule` in the `scheduled-scripts` directory
+3. **Deploy Script**: Place `08-hierarchical-rule` in the `scheduled-scripts` directory
 4. **Configure Service**: Ensure scheduled task service is running with 1-minute check interval
 5. **Test**: Create test hierarchy and verify dual aggregation works
 
 ## Monitoring and Troubleshooting
 
 ### Log Messages to Monitor:
-- "Starting hierarchical work item aggregation..."
+- "Starting hierarchical work item .."
 - "Found X changed tasks with completed work since last run"
 - "Found X changed features since last run"
 - "Tasks processed: X, Features processed: Y"
