@@ -33,41 +33,19 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
             result.ShouldHaveLogMessageContaining("Project test completed");
         }
 
-        [Fact]
-        public async Task ScheduledScript_CanSetProjectToPCLabs()
-        {
-            // Arrange
-            var script = @"
-                Logger.Information($""Initial Client project: '{Client.Project ?? ""null""}'?"");
-                
-                // Set the project to PCLabs (like the hierarchical aggregation script does)
-                Client.Project = ""PCLabs"";
-                
-                Logger.Information($""Updated Client project: '{Client.Project}'"");
-                Logger.Information(""PCLabs project setting test completed"");
-            ";
-
-            // Act
-            var result = await ExecuteScriptAsync(script);
-
-            // Assert
-            result.ShouldBeSuccessful();
-            result.ShouldHaveLogMessageContaining("Initial Client project: 'TestProject'");
-            result.ShouldHaveLogMessageContaining("Updated Client project: 'PCLabs'");
-            result.ShouldHaveLogMessageContaining("PCLabs project setting test completed");
-        }
+       
 
         [Fact]
         public async Task HierarchicalAggregationScript_ShouldSetProjectCorrectly()
         {
-            // Arrange - Create some test work items for PCLabs project
-            var task = CreateTestWorkItem("Task", "Test Task for PCLabs", "Active");
-            task.SetField("System.TeamProject", "PCLabs");
+            // Arrange - Create some test work items for ADOProject project
+            var task = CreateTestWorkItem("Task", "Test Task for ADOProject", "Active");
+            task.SetField("System.TeamProject", "ADOProject");
             task.SetField("Microsoft.VSTS.Scheduling.CompletedWork", 8.0);
             task.SetField("Microsoft.VSTS.Common.Activity", "Development");
 
-            var pbi = CreateTestWorkItem("Product Backlog Item", "Test PBI for PCLabs", "Active");
-            pbi.SetField("System.TeamProject", "PCLabs");
+            var pbi = CreateTestWorkItem("Product Backlog Item", "Test PBI for ADOProject", "Active");
+            pbi.SetField("System.TeamProject", "ADOProject");
             
             // Create parent-child relationship
             task.Relations.Add(new Lamdat.ADOAutomationTool.Entities.WorkItemRelation
@@ -88,16 +66,16 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
 
             // Use a simplified version of the hierarchical aggregation logic
             var script = @"
-                // Set the project to PCLabs for all operations (like the real script does)
-                Client.Project = ""PCLabs"";
+                // Set the project to ADOProject for all operations (like the real script does)
+                Client.Project = ""ADOProject"";
                 
                 Logger.Information($""Aggregation running with project: {Client.Project}"");
                 
-                // Find tasks with completed work in PCLabs project
-                var tasksQuery = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Task' AND [System.TeamProject] = 'PCLabs'"";
+                // Find tasks with completed work in ADOProject project
+                var tasksQuery = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Task' AND [System.TeamProject] = 'ADOProject'"";
                 var tasks = await Client.QueryWorkItemsByWiql(tasksQuery);
                 
-                Logger.Information($""Found {tasks.Count} tasks in PCLabs project"");
+                Logger.Information($""Found {tasks.Count} tasks in ADOProject project"");
                 
                 foreach (var task in tasks)
                 {
@@ -107,7 +85,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
                     Logger.Information($""Task {task.Id}: {completedWork} hours of {activity}"");
                 }
                 
-                Logger.Information($""Processed {tasks.Count} tasks from PCLabs"");
+                Logger.Information($""Processed {tasks.Count} tasks from ADOProject"");
             ";
 
             // Act
@@ -115,10 +93,10 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
 
             // Assert
             result.ShouldBeSuccessful();
-            result.ShouldHaveLogMessageContaining("Aggregation running with project: PCLabs");
-            result.ShouldHaveLogMessageContaining("Found 1 tasks in PCLabs project");
+            result.ShouldHaveLogMessageContaining("Aggregation running with project: ADOProject");
+            result.ShouldHaveLogMessageContaining("Found 1 tasks in ADOProject project");
             result.ShouldHaveLogMessageContaining("8 hours of Development");
-            result.ShouldHaveLogMessageContaining("Processed 1 tasks from PCLabs");
+            result.ShouldHaveLogMessageContaining("Processed 1 tasks from ADOProject");
         }
     }
 }

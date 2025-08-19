@@ -377,9 +377,9 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
                 }
                 
                 // Handle project filtering
-                if (wiqlQuery.Contains("AND [System.TeamProject] = 'PCLabs'"))
+                if (wiqlQuery.Contains("AND [System.TeamProject] = 'ADOProject'"))
                 {
-                    results = results.Where(w => w.GetField<string>("System.TeamProject") == "PCLabs").ToList();
+                    results = results.Where(w => w.GetField<string>("System.TeamProject") == "ADOProject").ToList();
                 }
                 
                 // Handle date filtering - for testing, return items that have been recently updated

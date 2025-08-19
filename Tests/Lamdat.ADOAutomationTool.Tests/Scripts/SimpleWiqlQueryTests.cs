@@ -30,10 +30,10 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
                 }
 
                 // Test filtering with project
-                var bugsQuery = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Bug' AND [System.TeamProject] = 'PCLabs'"";
+                var bugsQuery = ""SELECT [System.Id] FROM WorkItems WHERE [System.WorkItemType] = 'Bug' AND [System.TeamProject] = 'ADOProject'"";
                 var bugs = await Client.QueryWorkItemsByWiql(bugsQuery);
                 
-                Logger.Information($""Found {bugs.Count} bugs in PCLabs project"");
+                Logger.Information($""Found {bugs.Count} bugs in ADOProject project"");
             ";
 
             // Act
@@ -44,7 +44,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
             result.ShouldHaveLogMessageContaining("tasks using simple WIQL query");
             result.ShouldHaveLogMessageContaining("Test Task 1");
             result.ShouldHaveLogMessageContaining("Test Task 2");
-            result.ShouldHaveLogMessageContaining("bugs in PCLabs project");
+            result.ShouldHaveLogMessageContaining("bugs in ADOProject project");
         }
 
         [Fact]
