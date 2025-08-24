@@ -10,6 +10,7 @@ namespace Lamdat.ADOAutomationTool.Entities
         //Task<ADOUser> GetLastChangedByUserForWorkItem(int workItemId);
         Task<IterationDetails> GetTeamsIterationDetailsByName(string teamName, string iterationName);
         Task<WorkItem> GetWorkItem(int workItemId);
+        Task<WorkItem> CreateWorkItem(string workItemType, Dictionary<string, object?> fields);
         Task<bool> SaveWorkItem(WorkItem newWorkItem, bool logErrorOtherwiseWarn = false);
         Task<bool> SaveWorkItemRelations(WorkItem workitem, List<WorkItemRelation> relations);
         Task<List<WorkItem>> QueryLinksByWiql(QueryLinksByWiqlPrms queryLinksByWiqlPrms);

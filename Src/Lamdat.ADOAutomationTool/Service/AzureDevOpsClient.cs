@@ -112,6 +112,98 @@ namespace Lamdat.ADOAutomationTool.Service
             }
         }
 
+        /// <summary>
+        /// Creates a new work item
+        /// </summary>
+        /// <param name="workItemType">The type of work item to create (e.g., "Task", "Bug", "Feature")</param>
+        /// <param name="fields">Dictionary of field names and values</param>
+        /// <returns>The created work item with assigned ID</returns>
+        public async Task<WorkItem> CreateWorkItem(string workItemType, Dictionary<string, object?> fields)
+        {
+            if (string.IsNullOrWhiteSpace(workItemType))
+                throw new ArgumentException("Work item type cannot be null or empty", nameof(workItemType));
+
+            if (fields == null)
+                throw new ArgumentNullException(nameof(fields));
+
+            if (Project == "be9b3917-87e6-42a4-a549-2bc06a7a878f") // ADO Test 
+            {
+                var testWorkItem = new WorkItem 
+                { 
+                    Id = Random.Shared.Next(1000, 9999),
+                    Fields = new Dictionary<string, object?>(fields)
+                };
+                testWorkItem.SetField("System.WorkItemType", workItemType);
+                return testWorkItem;
+            }
+
+            try
+            {
+                var patchOperations = new List<JsonPatchOperation>();
+
+                // Add all provided fields
+                foreach (var kvp in fields)
+                {
+                    patchOperations.Add(new JsonPatchOperation
+                    {
+                        Operation = "add",
+                        Path = $"/fields/{kvp.Key}",
+                        Value = kvp.Value
+                    });
+                }
+
+                // Ensure work item type is set
+                if (!fields.ContainsKey("System.WorkItemType"))
+                {
+                    patchOperations.Add(new JsonPatchOperation
+                    {
+                        Operation = "add",
+                        Path = "/fields/System.WorkItemType",
+                        Value = workItemType
+                    });
+                }
+
+                var json = JsonConvert.SerializeObject(patchOperations);
+                var content = new StringContent(json, Encoding.UTF8, "application/json-patch+json");
+
+                var url = $"{_collectionURL}/{Project}/_apis/wit/workitems/${workItemType}?api-version={_apiVersion}&bypassRules={_bypassRules}";
+                var response = await _client.PostAsync(url, content);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var jsonString = await response.Content.ReadAsStringAsync();
+                    var createdWorkItem = JsonConvert.DeserializeObject<WorkItem>(jsonString);
+
+                    if (createdWorkItem == null)
+                    {
+                        var errorMessage = $"Failed to create work item of type '{workItemType}'. " +
+                                           $"Unexpected API response format: {jsonString}";
+                        _logger.Error(errorMessage);
+                        throw new ADOAutomationException(errorMessage);
+                    }
+
+                    SetWorkItemRelationsAndSaveSystemConnection(createdWorkItem);
+                    return createdWorkItem;
+                }
+                else
+                {
+                    var errorMessage = $"Failed to create work item of type '{workItemType}'.";
+                    if (response.Content != null)
+                    {
+                        var errorContent = await response.Content.ReadAsStringAsync();
+                        errorMessage += $" Error: {errorContent}";
+                    }
+                    _logger.Error(errorMessage);
+                    throw new ADOAutomationException(errorMessage);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"An error occurred while creating work item: {ex.Message}");
+                throw new ADOAutomationException($"Failed to create work item: {ex.Message}");
+            }
+        }
+
         public async Task<List<WorkItem>> QueryLinksByWiql(QueryLinksByWiqlPrms queryLinksByWiqlPrms)
         {
             if (queryLinksByWiqlPrms == null)
@@ -605,13 +697,29 @@ namespace Lamdat.ADOAutomationTool.Service
             {
                 var url = $"{_collectionURL}/{workitem.Project}/_apis/";
 
-                var payload = new
+                // Create JSON patch operations to add relations
+                var patchOperations = new List<JsonPatchOperation>();
+                
+                foreach (var relation in relations)
                 {
-                    relations
-                };
+                    patchOperations.Add(new JsonPatchOperation
+                    {
+                        Operation = "add",
+                        Path = "/relations/-",
+                        Value = new
+                        {
+                            rel = relation.Rel,
+                            url = relation.Url,
+                            attributes = new
+                            {
+                                comment = ""
+                            }
+                        }
+                    });
+                }
 
-                var json = JsonConvert.SerializeObject(payload);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var json = JsonConvert.SerializeObject(patchOperations);
+                var content = new StringContent(json, Encoding.UTF8, "application/json-patch+json");
 
                 var response = await _client.PatchAsync($"{url}wit/workitems/{workitem.Id}?api-version={_apiVersion}", content);
 

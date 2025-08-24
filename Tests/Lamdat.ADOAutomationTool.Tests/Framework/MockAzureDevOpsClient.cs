@@ -262,6 +262,21 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
             return resultItem;
         }
 
+        public Task<WorkItem> CreateWorkItem(string workItemType, Dictionary<string, object?> fields)
+        {
+            var workItem = new WorkItem
+            {
+                Id = _nextWorkItemId++,
+                Fields = new Dictionary<string, object?>(fields)
+            };
+            
+            // Ensure work item type is set
+            workItem.SetField("System.WorkItemType", workItemType);
+            
+            _workItems.TryAdd(workItem.Id, workItem);
+            return Task.FromResult(workItem);
+        }
+
         public Task<bool> SaveWorkItem(WorkItem newWorkItem, bool logErrorOtherwiseWarn = false)
         {
             SavedWorkItems.Add(newWorkItem);
