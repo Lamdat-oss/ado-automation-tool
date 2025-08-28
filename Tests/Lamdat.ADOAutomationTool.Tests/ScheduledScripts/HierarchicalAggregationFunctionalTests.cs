@@ -7,6 +7,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
     /// <summary>
     /// Comprehensive functional tests for the hierarchical aggregation script (08-hierarchical-aggregation.rule)
     /// Tests both bottom-up (Task → PBI/Feature/Epic) and top-down (Feature → Epic) aggregation
+    /// Updated to match hours-to-days conversion (HOURS_PER_DAY = 8)
     /// </summary>
     public class HierarchicalAggregationFunctionalTests : ScheduledScriptTestBase
     {
@@ -110,31 +111,31 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             var updatedEpic = MockClient.SavedWorkItems.FirstOrDefault(w => 
                 w.GetField<string>("System.WorkItemType") == "Epic");
             
-            // Verify PBI aggregation (direct from tasks)
+            // Verify PBI aggregation (Task hours converted to PBI days: 8+4=12 hours / 8 = 1.5 days)
             if (updatedPBI != null)
             {
-                updatedPBI.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(12.0); // 8 + 4
-                updatedPBI.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(8.0);
-                updatedPBI.GetField<double?>("Custom.QACompletedWork").Should().Be(4.0);
+                updatedPBI.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(1.5); // (8 + 4) hours / 8 = 1.5 days
+                updatedPBI.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(1.0); // 8 hours / 8 = 1.0 day
+                updatedPBI.GetField<double?>("Custom.QACompletedWork").Should().Be(0.5); // 4 hours / 8 = 0.5 days
                 updatedPBI.GetField<double?>("Custom.POCompletedWork").Should().Be(0.0);
                 updatedPBI.GetField<double?>("Custom.AdminCompletedWork").Should().Be(0.0);
                 updatedPBI.GetField<double?>("Custom.OthersCompletedWork").Should().Be(0.0);
             }
             
-            // Verify Feature aggregation (from PBI)
+            // Verify Feature aggregation (aggregates from PBI days: 1.5 days)
             if (updatedFeature != null)
             {
-                updatedFeature.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(12.0);
-                updatedFeature.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(8.0);
-                updatedFeature.GetField<double?>("Custom.QACompletedWork").Should().Be(4.0);
+                updatedFeature.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(1.5);
+                updatedFeature.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(1.0);
+                updatedFeature.GetField<double?>("Custom.QACompletedWork").Should().Be(0.5);
             }
             
-            // Verify Epic aggregation (from Feature)
+            // Verify Epic aggregation (aggregates from Feature days: 1.5 days)
             if (updatedEpic != null)
             {
-                updatedEpic.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(12.0);
-                updatedEpic.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(8.0);
-                updatedEpic.GetField<double?>("Custom.QACompletedWork").Should().Be(4.0);
+                updatedEpic.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(1.5);
+                updatedEpic.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(1.0);
+                updatedEpic.GetField<double?>("Custom.QACompletedWork").Should().Be(0.5);
             }
         }
         
@@ -211,7 +212,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             result.ShouldBeSuccessful();
             result.ShouldHaveLogMessageContaining("Hierarchical aggregation completed");
             
-            // Expected totals: PBI1=13h (10+3), PBI2=6h, Bug=2h, Feature=21h, Epic=21h
+            // Expected totals: PBI1=13h→1.63d (10+3), PBI2=6h→0.75d, Bug=2h→0.25d, Feature=2.63d, Epic=2.63d
             var updatedFeature = MockClient.SavedWorkItems.FirstOrDefault(w => 
                 w.GetField<string>("System.WorkItemType") == "Feature");
             var updatedEpic = MockClient.SavedWorkItems.FirstOrDefault(w => 
@@ -219,16 +220,16 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             
             if (updatedFeature != null)
             {
-                updatedFeature.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(21.0); // 13+6+2
-                updatedFeature.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(18.0); // 10+6+2
-                updatedFeature.GetField<double?>("Custom.QACompletedWork").Should().Be(3.0);
+                updatedFeature.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(2.63); // (13+6+2) hours / 8 = 2.63 days
+                updatedFeature.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(2.25); // (10+6+2) hours / 8 = 2.25 days
+                updatedFeature.GetField<double?>("Custom.QACompletedWork").Should().Be(0.38); // 3 hours / 8 = 0.38 days
             }
             
             if (updatedEpic != null)
             {
-                updatedEpic.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(21.0);
-                updatedEpic.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(18.0);
-                updatedEpic.GetField<double?>("Custom.QACompletedWork").Should().Be(3.0);
+                updatedEpic.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(2.63);
+                updatedEpic.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(2.25);
+                updatedEpic.GetField<double?>("Custom.QACompletedWork").Should().Be(0.38);
             }
         }
         
@@ -247,29 +248,29 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             feature1.SetField("System.TeamProject", "PCLabs");
             feature2.SetField("System.TeamProject", "PCLabs");
             
-            // Set up estimation and remaining work on features
+            // Set up estimation and remaining work on features (Features work in hours, Epic converts to days)
             var today = DateTime.Now;
             
-            // Feature 1 estimates/remaining
-            feature1.SetField("Microsoft.VSTS.Scheduling.Effort", 40.0);
-            feature1.SetField("Custom.DevelopmentEffortEstimation", 25.0);
-            feature1.SetField("Custom.QAEffortEstimation", 10.0);
-            feature1.SetField("Custom.POEffortEstimation", 5.0);
-            feature1.SetField("Microsoft.VSTS.Scheduling.RemainingWork", 30.0);
-            feature1.SetField("Custom.DevelopmentRemainingWork", 20.0);
-            feature1.SetField("Custom.QARemainingWork", 8.0);
-            feature1.SetField("Custom.PORemainingWork", 2.0);
+            // Feature 1 estimates/remaining (in hours)
+            feature1.SetField("Microsoft.VSTS.Scheduling.Effort", 320.0); // 320 hours = 40 days
+            feature1.SetField("Custom.DevelopmentEffortEstimation", 200.0); // 200 hours = 25 days
+            feature1.SetField("Custom.QAEffortEstimation", 80.0); // 80 hours = 10 days
+            feature1.SetField("Custom.POEffortEstimation", 40.0); // 40 hours = 5 days
+            feature1.SetField("Microsoft.VSTS.Scheduling.RemainingWork", 240.0); // 240 hours = 30 days
+            feature1.SetField("Custom.DevelopmentRemainingWork", 160.0); // 160 hours = 20 days
+            feature1.SetField("Custom.QARemainingWork", 64.0); // 64 hours = 8 days
+            feature1.SetField("Custom.PORemainingWork", 16.0); // 16 hours = 2 days
             feature1.SetField("System.ChangedDate", today);
             
-            // Feature 2 estimates/remaining
-            feature2.SetField("Microsoft.VSTS.Scheduling.Effort", 60.0);
-            feature2.SetField("Custom.DevelopmentEffortEstimation", 35.0);
-            feature2.SetField("Custom.QAEffortEstimation", 15.0);
-            feature2.SetField("Custom.POEffortEstimation", 10.0);
-            feature2.SetField("Microsoft.VSTS.Scheduling.RemainingWork", 50.0);
-            feature2.SetField("Custom.DevelopmentRemainingWork", 30.0);
-            feature2.SetField("Custom.QARemainingWork", 12.0);
-            feature2.SetField("Custom.PORemainingWork", 8.0);
+            // Feature 2 estimates/remaining (in hours)
+            feature2.SetField("Microsoft.VSTS.Scheduling.Effort", 480.0); // 480 hours = 60 days
+            feature2.SetField("Custom.DevelopmentEffortEstimation", 280.0); // 280 hours = 35 days
+            feature2.SetField("Custom.QAEffortEstimation", 120.0); // 120 hours = 15 days
+            feature2.SetField("Custom.POEffortEstimation", 80.0); // 80 hours = 10 days
+            feature2.SetField("Microsoft.VSTS.Scheduling.RemainingWork", 400.0); // 400 hours = 50 days
+            feature2.SetField("Custom.DevelopmentRemainingWork", 240.0); // 240 hours = 30 days
+            feature2.SetField("Custom.QARemainingWork", 96.0); // 96 hours = 12 days
+            feature2.SetField("Custom.PORemainingWork", 64.0); // 64 hours = 8 days
             feature2.SetField("System.ChangedDate", today);
             
             // Set up relationships
@@ -291,28 +292,29 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             result.ShouldHaveLogMessageContaining("changed features since last run");
             result.ShouldHaveLogMessageContaining("Finding affected epics using batched queries");
             
-            // Verify Epic was updated with aggregated estimates
+            // Verify Epic was updated with aggregated estimates (Feature hours directly aggregated as-is for now)
             var updatedEpic = MockClient.SavedWorkItems.FirstOrDefault(w => 
                 w.GetField<string>("System.WorkItemType") == "Epic");
             
             updatedEpic.Should().NotBeNull();
             
-            // Verify total effort estimation (40 + 60 = 100)
-            updatedEpic.GetField<double?>("Microsoft.VSTS.Scheduling.Effort").Should().Be(100.0);
-            updatedEpic.GetField<double?>("Custom.TotalEffortEstimation").Should().Be(100.0);
+            // Note: Currently the script aggregates Feature values directly without conversion
+            // Verify total effort estimation (320 + 480 = 800)
+            updatedEpic.GetField<double?>("Microsoft.VSTS.Scheduling.Effort").Should().Be(800.0);
+            updatedEpic.GetField<double?>("Custom.TotalEffortEstimation").Should().Be(800.0);
             
             // Verify discipline breakdowns for estimation
-            updatedEpic.GetField<double?>("Custom.DevelopmentEffortEstimation").Should().Be(60.0); // 25 + 35
-            updatedEpic.GetField<double?>("Custom.QAEffortEstimation").Should().Be(25.0); // 10 + 15
-            updatedEpic.GetField<double?>("Custom.POEffortEstimation").Should().Be(15.0); // 5 + 10
+            updatedEpic.GetField<double?>("Custom.DevelopmentEffortEstimation").Should().Be(480.0); // 200 + 280
+            updatedEpic.GetField<double?>("Custom.QAEffortEstimation").Should().Be(200.0); // 80 + 120
+            updatedEpic.GetField<double?>("Custom.POEffortEstimation").Should().Be(120.0); // 40 + 80
             
-            // Verify total remaining work (30 + 50 = 80)
-            updatedEpic.GetField<double?>("Microsoft.VSTS.Scheduling.RemainingWork").Should().Be(80.0);
+            // Verify total remaining work (240 + 400 = 640)
+            updatedEpic.GetField<double?>("Microsoft.VSTS.Scheduling.RemainingWork").Should().Be(640.0);
             
             // Verify discipline breakdowns for remaining work
-            updatedEpic.GetField<double?>("Custom.DevelopmentRemainingWork").Should().Be(50.0); // 20 + 30
-            updatedEpic.GetField<double?>("Custom.QARemainingWork").Should().Be(20.0); // 8 + 12
-            updatedEpic.GetField<double?>("Custom.PORemainingWork").Should().Be(10.0); // 2 + 8
+            updatedEpic.GetField<double?>("Custom.DevelopmentRemainingWork").Should().Be(400.0); // 160 + 240
+            updatedEpic.GetField<double?>("Custom.QARemainingWork").Should().Be(160.0); // 64 + 96
+            updatedEpic.GetField<double?>("Custom.PORemainingWork").Should().Be(80.0); // 16 + 64
         }
         
         [Fact]
@@ -347,10 +349,10 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             task2.SetField("System.ChangedDate", today);
             
             // Set up estimates on feature2 (for top-down aggregation)
-            feature2.SetField("Microsoft.VSTS.Scheduling.Effort", 50.0);
-            feature2.SetField("Custom.DevelopmentEffortEstimation", 30.0);
-            feature2.SetField("Custom.QAEffortEstimation", 15.0);
-            feature2.SetField("Custom.POEffortEstimation", 5.0);
+            feature2.SetField("Microsoft.VSTS.Scheduling.Effort", 400.0); // 400 hours
+            feature2.SetField("Custom.DevelopmentEffortEstimation", 240.0); // 240 hours
+            feature2.SetField("Custom.QAEffortEstimation", 120.0); // 120 hours
+            feature2.SetField("Custom.POEffortEstimation", 40.0); // 40 hours
             feature2.SetField("System.ChangedDate", today);
             
             // Set up relationships
@@ -382,14 +384,14 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             updatedEpic.Should().NotBeNull();
             
             // Verify both bottom-up completed work aggregation and top-down estimation aggregation
-            updatedEpic.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(20.0); // From tasks
-            updatedEpic.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(12.0);
-            updatedEpic.GetField<double?>("Custom.QACompletedWork").Should().Be(8.0);
+            updatedEpic.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(2.5); // (12+8) hours / 8 = 2.5 days
+            updatedEpic.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(1.5); // 12 hours / 8 = 1.5 days
+            updatedEpic.GetField<double?>("Custom.QACompletedWork").Should().Be(1.0); // 8 hours / 8 = 1.0 day
             
-            updatedEpic.GetField<double?>("Microsoft.VSTS.Scheduling.Effort").Should().Be(50.0); // From feature estimates
-            updatedEpic.GetField<double?>("Custom.DevelopmentEffortEstimation").Should().Be(30.0);
-            updatedEpic.GetField<double?>("Custom.QAEffortEstimation").Should().Be(15.0);
-            updatedEpic.GetField<double?>("Custom.POEffortEstimation").Should().Be(5.0);
+            updatedEpic.GetField<double?>("Microsoft.VSTS.Scheduling.Effort").Should().Be(400.0); // From feature estimates (currently aggregated as-is)
+            updatedEpic.GetField<double?>("Custom.DevelopmentEffortEstimation").Should().Be(240.0);
+            updatedEpic.GetField<double?>("Custom.QAEffortEstimation").Should().Be(120.0);
+            updatedEpic.GetField<double?>("Custom.POEffortEstimation").Should().Be(40.0);
         }
         
         [Fact]
@@ -491,13 +493,13 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             
             updatedPBI.Should().NotBeNull();
             
-            // Verify discipline mapping
-            updatedPBI.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(20.0); // Total
-            updatedPBI.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(8.0); // Development
-            updatedPBI.GetField<double?>("Custom.QACompletedWork").Should().Be(4.0); // Testing -> QA
-            updatedPBI.GetField<double?>("Custom.POCompletedWork").Should().Be(2.0); // Design -> PO
-            updatedPBI.GetField<double?>("Custom.AdminCompletedWork").Should().Be(1.0); // Admin Configuration -> Admin
-            updatedPBI.GetField<double?>("Custom.OthersCompletedWork").Should().Be(5.0); // Ceremonies + Unknown -> Others (3 + 2)
+            // Verify discipline mapping (Task hours converted to PBI days: total 20 hours / 8 = 2.5 days)
+            updatedPBI.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork").Should().Be(2.5); // 20 hours / 8 = 2.5 days
+            updatedPBI.GetField<double?>("Custom.DevelopmentCompletedWork").Should().Be(1.0); // 8 hours / 8 = 1.0 day
+            updatedPBI.GetField<double?>("Custom.QACompletedWork").Should().Be(0.5); // 4 hours / 8 = 0.5 days
+            updatedPBI.GetField<double?>("Custom.POCompletedWork").Should().Be(0.25); // 2 hours / 8 = 0.25 days
+            updatedPBI.GetField<double?>("Custom.AdminCompletedWork").Should().Be(0.12); // 1 hour / 8 = 0.12 days (rounded)
+            updatedPBI.GetField<double?>("Custom.OthersCompletedWork").Should().Be(0.63); // (3 + 2) hours / 8 = 0.63 days (rounded)
         }
     }
 }

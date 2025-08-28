@@ -854,3 +854,4 @@
                 }
 
                 Logger.Information($"Found {affectedPBIs.Count} PBIs, {affectedBugs.Count} bugs, {affectedGlitches.Count} glitches, {affectedFeatures.Count} features and {affectedEpics.Count} epics needing completed work re-aggregation");
+            }
