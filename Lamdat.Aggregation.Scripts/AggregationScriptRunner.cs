@@ -552,12 +552,16 @@ namespace Lamdat.Aggregation.Scripts
                     aggregatedData["InfraCompletedWork"] += pbi.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
                     aggregatedData["CapabilitiesCompletedWork"] += pbi.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
                     aggregatedData["UnProductiveCompletedWork"] += pbi.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
-
-
-
                 }
 
-                return aggregatedData;
+                // Round all values to 2 decimal places
+                var roundedAggregatedData = new Dictionary<string, double>();
+                foreach (var kvp in aggregatedData)
+                {
+                    roundedAggregatedData[kvp.Key] = Math.Round(kvp.Value, 2);
+                }
+
+                return roundedAggregatedData;
             }
 
 
@@ -643,6 +647,8 @@ namespace Lamdat.Aggregation.Scripts
             // Calculate aggregated completed work data for a work item from its child tasks
             async Task<Dictionary<string, double>> CalculateCompletedWorkAggregation(WorkItem parentItem, Dictionary<string, string> disciplineMappings, IAzureDevOpsClient client)
             {
+                const int HOURS_PER_DAY = 8;
+
                 var aggregatedData = new Dictionary<string, double>
                 {
                     ["TotalCompletedWork"] = 0,
@@ -679,7 +685,8 @@ namespace Lamdat.Aggregation.Scripts
 
                     if (completedWork > 0)
                     {
-                        aggregatedData["TotalCompletedWork"] += completedWork;
+                        var completedDays = Math.Round(completedWork / HOURS_PER_DAY, 2);
+                        aggregatedData["TotalCompletedWork"] += completedDays;
 
                         // Map activity to discipline
                         if (disciplineMappings.TryGetValue(activity, out var discipline))
@@ -687,28 +694,28 @@ namespace Lamdat.Aggregation.Scripts
                             switch (discipline)
                             {
                                 case "Development":
-                                    aggregatedData["DevelopmentCompletedWork"] += completedWork;
+                                    aggregatedData["DevelopmentCompletedWork"] += completedDays;
                                     break;
                                 case "QA":
-                                    aggregatedData["QACompletedWork"] += completedWork;
+                                    aggregatedData["QACompletedWork"] += completedDays;
                                     break;
                                 case "PO":
-                                    aggregatedData["POCompletedWork"] += completedWork;
+                                    aggregatedData["POCompletedWork"] += completedDays;
                                     break;
                                 case "Admin":
-                                    aggregatedData["AdminCompletedWork"] += completedWork;
+                                    aggregatedData["AdminCompletedWork"] += completedDays;
                                     break;
                                 case "Others":
-                                    aggregatedData["OthersCompletedWork"] += completedWork;
+                                    aggregatedData["OthersCompletedWork"] += completedDays;
                                     break;
                                 case "Infra":
-                                    aggregatedData["InfraCompletedWork"] += completedWork;
+                                    aggregatedData["InfraCompletedWork"] += completedDays;
                                     break;
                                 case "Capabilities":
-                                    aggregatedData["CapabilitiesCompletedWork"] += completedWork;
+                                    aggregatedData["CapabilitiesCompletedWork"] += completedDays;
                                     break;
                                 case "UnProductive":
-                                    aggregatedData["UnProductiveCompletedWork"] += completedWork;
+                                    aggregatedData["UnProductiveCompletedWork"] += completedDays;
                                     break;
 
                             }
@@ -716,7 +723,7 @@ namespace Lamdat.Aggregation.Scripts
                         else
                         {
                             // Unknown activity goes to Others
-                            aggregatedData["OthersCompletedWork"] += completedWork;
+                            aggregatedData["OthersCompletedWork"] += completedDays;
                         }
                     }
                 }
