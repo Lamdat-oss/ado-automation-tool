@@ -1,4 +1,4 @@
-﻿            // Hierarchical Work Item Aggregation Task
+﻿ // Hierarchical Work Item Aggregation Task
             // This script aggregates effort data through the Epic > Feature > PBI/Bug/Glitch > Task hierarchy
             // 1. Bottom-up: Task completed work aggregated to parents (PBI/Bug/Glitch/Feature/Epic)
             // 2. Top-down: Feature estimation/remaining fields aggregated to Epic
@@ -40,13 +40,13 @@
         {"Reproduce", "QA"},
         {"Requirements Meeting", "PO"},
         {"Support Team", "Others"},
-        {"Support COE", "Capabilities"},        
+        {"Support COE", "Capabilities"},
         {"Test Case", "QA"},
         {"Test Cases Approval", "QA"},
         {"Testing", "QA"},
         {"Training", "Capabilities"},
         {"First Line Support", "Admin"},
-        {"UX/UI", "PO"},        
+        {"UX/UI", "PO"},
         {"Regression Testing", "QA"},
         {"Functional Design", "PO"},
         {"Solution Design", "PO"},
@@ -108,7 +108,7 @@
                 {
                     await ProcessTopDownAggregation(changedFeatures, aggregationStats, Client);
                 }
-                 
+
                 // Log aggregation results
                 Logger.Information($"Hierarchical aggregation completed:");
                 Logger.Information($"  - Features processed: {aggregationStats["FeaturesProcessed"]}");
@@ -200,8 +200,8 @@
 
                 stats["FeaturesProcessed"] = changedFeatures.Count;
             }
-                        
-          
+
+
             // Process Epic estimation and remaining work aggregation from Features
             async Task ProcessEpicEstimationAggregation(int epicId, IAzureDevOpsClient client)
             {
@@ -235,7 +235,7 @@
                     ["InfraEffortEstimation"] = 0,
                     ["CapabilitiesEffortEstimation"] = 0,
                     ["UnProductiveEffortEstimation"] = 0
-                 
+
                 };
 
                 // Initialize aggregation totals for remaining fields (from Features)
@@ -535,12 +535,16 @@
                     aggregatedData["InfraCompletedWork"] += pbi.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
                     aggregatedData["CapabilitiesCompletedWork"] += pbi.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
                     aggregatedData["UnProductiveCompletedWork"] += pbi.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
-
-
-
                 }
 
-                return aggregatedData;
+                // Round all values to 2 decimal places
+                var roundedAggregatedData = new Dictionary<string, double>();
+                foreach (var kvp in aggregatedData)
+                {
+                    roundedAggregatedData[kvp.Key] = Math.Round(kvp.Value, 2);
+                }
+
+                return roundedAggregatedData;
             }
 
 
@@ -626,6 +630,8 @@
             // Calculate aggregated completed work data for a work item from its child tasks
             async Task<Dictionary<string, double>> CalculateCompletedWorkAggregation(WorkItem parentItem, Dictionary<string, string> disciplineMappings, IAzureDevOpsClient client)
             {
+                const int HOURS_PER_DAY = 8;
+
                 var aggregatedData = new Dictionary<string, double>
                 {
                     ["TotalCompletedWork"] = 0,
@@ -662,7 +668,8 @@
 
                     if (completedWork > 0)
                     {
-                        aggregatedData["TotalCompletedWork"] += completedWork;
+                        var completedDays = Math.Round(completedWork / HOURS_PER_DAY, 2);
+                        aggregatedData["TotalCompletedWork"] += completedDays;
 
                         // Map activity to discipline
                         if (disciplineMappings.TryGetValue(activity, out var discipline))
@@ -670,28 +677,28 @@
                             switch (discipline)
                             {
                                 case "Development":
-                                    aggregatedData["DevelopmentCompletedWork"] += completedWork;
+                                    aggregatedData["DevelopmentCompletedWork"] += completedDays;
                                     break;
                                 case "QA":
-                                    aggregatedData["QACompletedWork"] += completedWork;
+                                    aggregatedData["QACompletedWork"] += completedDays;
                                     break;
                                 case "PO":
-                                    aggregatedData["POCompletedWork"] += completedWork;
+                                    aggregatedData["POCompletedWork"] += completedDays;
                                     break;
                                 case "Admin":
-                                    aggregatedData["AdminCompletedWork"] += completedWork;
+                                    aggregatedData["AdminCompletedWork"] += completedDays;
                                     break;
                                 case "Others":
-                                    aggregatedData["OthersCompletedWork"] += completedWork;
+                                    aggregatedData["OthersCompletedWork"] += completedDays;
                                     break;
                                 case "Infra":
-                                    aggregatedData["InfraCompletedWork"] += completedWork;
+                                    aggregatedData["InfraCompletedWork"] += completedDays;
                                     break;
                                 case "Capabilities":
-                                    aggregatedData["CapabilitiesCompletedWork"] += completedWork;
+                                    aggregatedData["CapabilitiesCompletedWork"] += completedDays;
                                     break;
-                                 case "UnProductive":
-                                    aggregatedData["UnProductiveCompletedWork"] += completedWork;
+                                case "UnProductive":
+                                    aggregatedData["UnProductiveCompletedWork"] += completedDays;
                                     break;
 
                             }
@@ -699,7 +706,7 @@
                         else
                         {
                             // Unknown activity goes to Others
-                            aggregatedData["OthersCompletedWork"] += completedWork;
+                            aggregatedData["OthersCompletedWork"] += completedDays;
                         }
                     }
                 }
@@ -847,6 +854,3 @@
                 }
 
                 Logger.Information($"Found {affectedPBIs.Count} PBIs, {affectedBugs.Count} bugs, {affectedGlitches.Count} glitches, {affectedFeatures.Count} features and {affectedEpics.Count} epics needing completed work re-aggregation");
-            }
-
-
