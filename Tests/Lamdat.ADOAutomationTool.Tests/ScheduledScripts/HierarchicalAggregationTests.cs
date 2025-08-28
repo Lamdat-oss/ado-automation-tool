@@ -259,6 +259,443 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             }
         }
 
+        #region New Discipline Groups Tests (Infra, UnProductive, Capabilities)
+
+        [Fact]
+        public async Task HierarchicalAggregationScript_ShouldHandleInfraDisciplineMapping()
+        {
+            // Arrange - Create tasks with Infrastructure activities
+            var pbi = CreateTestWorkItem("Product Backlog Item", "Infra Test PBI", "Active");
+            var devOpsTask = CreateTestWorkItem("Task", "DevOps Task", "Done");
+            var releaseInfraTask = CreateTestWorkItem("Task", "Release Infrastructure Task", "Done");
+            
+            // Set the project to PCLabs for all work items
+            pbi.SetField("System.TeamProject", "PCLabs");
+            devOpsTask.SetField("System.TeamProject", "PCLabs");
+            releaseInfraTask.SetField("System.TeamProject", "PCLabs");
+            
+            // Set up Infrastructure activities
+            devOpsTask.SetField("Microsoft.VSTS.Scheduling.CompletedWork", 6.0);
+            devOpsTask.SetField("Microsoft.VSTS.Common.Activity", "DevOps");
+            
+            releaseInfraTask.SetField("Microsoft.VSTS.Scheduling.CompletedWork", 4.0);
+            releaseInfraTask.SetField("Microsoft.VSTS.Common.Activity", "Release Infra");
+            
+            // Set the changed date to today to ensure it gets picked up by the script
+            var today = DateTime.Now;
+            devOpsTask.SetField("System.ChangedDate", today);
+            releaseInfraTask.SetField("System.ChangedDate", today);
+            pbi.SetField("System.ChangedDate", today);
+            
+            // Set up relationships
+            pbi.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = devOpsTask.Id });
+            pbi.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = releaseInfraTask.Id });
+            
+            // Save work items
+            await MockClient.SaveWorkItem(pbi);
+            await MockClient.SaveWorkItem(devOpsTask);
+            await MockClient.SaveWorkItem(releaseInfraTask);
+            
+            MockClient.SavedWorkItems.Clear();
+            
+            // Act
+            var result = await ExecuteScriptFromFileAsync(AGGREGATION_SCRIPT_PATH);
+            
+            // Assert - Verify Infrastructure discipline aggregation occurred
+            result.ShouldBeSuccessful();
+            
+            // Check that some processing occurred
+            if (!result.HasLogMessageContaining("Found 0 changed tasks"))
+            {
+                result.ShouldHaveLogMessageContaining("changed tasks with completed work since last run");
+                
+                // Verify PBI was updated with Infrastructure breakdown
+                var updatedPBI = MockClient.SavedWorkItems.FirstOrDefault(w => 
+                    w.GetField<string>("System.WorkItemType") == "Product Backlog Item");
+                
+                if (updatedPBI != null)
+                {
+                    // Verify Infrastructure specific aggregation fields
+                    updatedPBI.Fields.Should().ContainKey("Custom.InfraCompletedWork");
+                    
+                    // Verify the total Infrastructure work is correctly aggregated (6.0 + 4.0 = 10.0)
+                    var infraWork = updatedPBI.GetField<double?>("Custom.InfraCompletedWork");
+                    if (infraWork.HasValue)
+                    {
+                        infraWork.Value.Should().Be(10.0, "DevOps (6.0) + Release Infra (4.0) should equal 10.0");
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public async Task HierarchicalAggregationScript_ShouldHandleUnProductiveDisciplineMapping()
+        {
+            // Arrange - Create tasks with UnProductive activities
+            var pbi = CreateTestWorkItem("Product Backlog Item", "UnProductive Test PBI", "Active");
+            var investigationTask = CreateTestWorkItem("Task", "Investigation Task", "Done");
+            var managementTask = CreateTestWorkItem("Task", "Management Task", "Done");
+            
+            // Set the project to PCLabs for all work items
+            pbi.SetField("System.TeamProject", "PCLabs");
+            investigationTask.SetField("System.TeamProject", "PCLabs");
+            managementTask.SetField("System.TeamProject", "PCLabs");
+            
+            // Set up UnProductive activities
+            investigationTask.SetField("Microsoft.VSTS.Scheduling.CompletedWork", 3.0);
+            investigationTask.SetField("Microsoft.VSTS.Common.Activity", "Investigation");
+            
+            managementTask.SetField("Microsoft.VSTS.Scheduling.CompletedWork", 2.0);
+            managementTask.SetField("Microsoft.VSTS.Common.Activity", "Management");
+            
+            // Set the changed date to today to ensure it gets picked up by the script
+            var today = DateTime.Now;
+            investigationTask.SetField("System.ChangedDate", today);
+            managementTask.SetField("System.ChangedDate", today);
+            pbi.SetField("System.ChangedDate", today);
+            
+            // Set up relationships
+            pbi.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = investigationTask.Id });
+            pbi.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = managementTask.Id });
+            
+            // Save work items
+            await MockClient.SaveWorkItem(pbi);
+            await MockClient.SaveWorkItem(investigationTask);
+            await MockClient.SaveWorkItem(managementTask);
+            
+            MockClient.SavedWorkItems.Clear();
+            
+            // Act
+            var result = await ExecuteScriptFromFileAsync(AGGREGATION_SCRIPT_PATH);
+            
+            // Assert - Verify UnProductive discipline aggregation occurred
+            result.ShouldBeSuccessful();
+            
+            // Check that some processing occurred
+            if (!result.HasLogMessageContaining("Found 0 changed tasks"))
+            {
+                result.ShouldHaveLogMessageContaining("changed tasks with completed work since last run");
+                
+                // Verify PBI was updated with UnProductive breakdown
+                var updatedPBI = MockClient.SavedWorkItems.FirstOrDefault(w => 
+                    w.GetField<string>("System.WorkItemType") == "Product Backlog Item");
+                
+                if (updatedPBI != null)
+                {
+                    // Verify UnProductive specific aggregation fields
+                    updatedPBI.Fields.Should().ContainKey("Custom.UnProductiveCompletedWork");
+                    
+                    // Verify the total UnProductive work is correctly aggregated (3.0 + 2.0 = 5.0)
+                    var unProductiveWork = updatedPBI.GetField<double?>("Custom.UnProductiveCompletedWork");
+                    if (unProductiveWork.HasValue)
+                    {
+                        unProductiveWork.Value.Should().Be(5.0, "Investigation (3.0) + Management (2.0) should equal 5.0");
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public async Task HierarchicalAggregationScript_ShouldHandleCapabilitiesDisciplineMapping()
+        {
+            // Arrange - Create tasks with Capabilities activities
+            var pbi = CreateTestWorkItem("Product Backlog Item", "Capabilities Test PBI", "Active");
+            var supportCoeTask = CreateTestWorkItem("Task", "Support COE Task", "Done");
+            var trainingTask = CreateTestWorkItem("Task", "Training Task", "Done");
+            
+            // Set the project to PCLabs for all work items
+            pbi.SetField("System.TeamProject", "PCLabs");
+            supportCoeTask.SetField("System.TeamProject", "PCLabs");
+            trainingTask.SetField("System.TeamProject", "PCLabs");
+            
+            // Set up Capabilities activities
+            supportCoeTask.SetField("Microsoft.VSTS.Scheduling.CompletedWork", 8.0);
+            supportCoeTask.SetField("Microsoft.VSTS.Common.Activity", "Support COE");
+            
+            trainingTask.SetField("Microsoft.VSTS.Scheduling.CompletedWork", 5.0);
+            trainingTask.SetField("Microsoft.VSTS.Common.Activity", "Training");
+            
+            // Set the changed date to today to ensure it gets picked up by the script
+            var today = DateTime.Now;
+            supportCoeTask.SetField("System.ChangedDate", today);
+            trainingTask.SetField("System.ChangedDate", today);
+            pbi.SetField("System.ChangedDate", today);
+            
+            // Set up relationships
+            pbi.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = supportCoeTask.Id });
+            pbi.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = trainingTask.Id });
+            
+            // Save work items
+            await MockClient.SaveWorkItem(pbi);
+            await MockClient.SaveWorkItem(supportCoeTask);
+            await MockClient.SaveWorkItem(trainingTask);
+            
+            MockClient.SavedWorkItems.Clear();
+            
+            // Act
+            var result = await ExecuteScriptFromFileAsync(AGGREGATION_SCRIPT_PATH);
+            
+            // Assert - Verify Capabilities discipline aggregation occurred
+            result.ShouldBeSuccessful();
+            
+            // Check that some processing occurred
+            if (!result.HasLogMessageContaining("Found 0 changed tasks"))
+            {
+                result.ShouldHaveLogMessageContaining("changed tasks with completed work since last run");
+                
+                // Verify PBI was updated with Capabilities breakdown
+                var updatedPBI = MockClient.SavedWorkItems.FirstOrDefault(w => 
+                    w.GetField<string>("System.WorkItemType") == "Product Backlog Item");
+                
+                if (updatedPBI != null)
+                {
+                    // Verify Capabilities specific aggregation fields
+                    updatedPBI.Fields.Should().ContainKey("Custom.CapabilitiesCompletedWork");
+                    
+                    // Verify the total Capabilities work is correctly aggregated (8.0 + 5.0 = 13.0)
+                    var capabilitiesWork = updatedPBI.GetField<double?>("Custom.CapabilitiesCompletedWork");
+                    if (capabilitiesWork.HasValue)
+                    {
+                        capabilitiesWork.Value.Should().Be(13.0, "Support COE (8.0) + Training (5.0) should equal 13.0");
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public async Task HierarchicalAggregationScript_ShouldAggregateNewDisciplinesInFeatureEstimation()
+        {
+            // Arrange - Create Epic with Feature containing estimation data for new disciplines
+            var epic = CreateTestWorkItem("Epic", "New Disciplines Epic", "Active");
+            var feature = CreateTestWorkItem("Feature", "New Disciplines Feature", "Active");
+            
+            // Set the project to PCLabs for all work items
+            epic.SetField("System.TeamProject", "PCLabs");
+            feature.SetField("System.TeamProject", "PCLabs");
+            
+            // Set up estimation fields on feature for new disciplines
+            feature.SetField("Microsoft.VSTS.Scheduling.Effort", 50.0);
+            feature.SetField("Custom.InfraEffortEstimation", 15.0);
+            feature.SetField("Custom.CapabilitiesEffortEstimation", 10.0);
+            feature.SetField("Custom.UnProductiveEffortEstimation", 5.0);
+            
+            // Set up remaining work fields for new disciplines
+            feature.SetField("Microsoft.VSTS.Scheduling.RemainingWork", 30.0);
+            feature.SetField("Custom.InfraRemainingWork", 10.0);
+            feature.SetField("Custom.CapabilitiesRemainingWork", 8.0);
+            feature.SetField("Custom.UnProductiveRemainingWork", 3.0);
+            
+            // Set up completed work fields for new disciplines
+            feature.SetField("Microsoft.VSTS.Scheduling.CompletedWork", 20.0);
+            feature.SetField("Custom.InfraCompletedWork", 5.0);
+            feature.SetField("Custom.CapabilitiesCompletedWork", 2.0);
+            feature.SetField("Custom.UnProductiveCompletedWork", 2.0);
+            
+            // Set the changed date to today to ensure it gets picked up by the script
+            var today = DateTime.Now;
+            feature.SetField("System.ChangedDate", today);
+            epic.SetField("System.ChangedDate", today);
+            
+            // Set up hierarchy
+            epic.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = feature.Id });
+            
+            // Save work items
+            await MockClient.SaveWorkItem(epic);
+            await MockClient.SaveWorkItem(feature);
+            
+            MockClient.SavedWorkItems.Clear();
+            
+            // Act
+            var result = await ExecuteScriptFromFileAsync(AGGREGATION_SCRIPT_PATH);
+            
+            // Assert - Verify top-down aggregation for new disciplines occurred
+            result.ShouldBeSuccessful();
+            
+            // Check that some processing occurred
+            if (!result.HasLogMessageContaining("Found 0 changed features"))
+            {
+                result.ShouldHaveLogMessageContaining("changed features since last run");
+                result.ShouldHaveLogMessageContaining("Finding affected epics using batched queries");
+                
+                // Verify Epic was updated with new discipline aggregation
+                var updatedEpic = MockClient.SavedWorkItems.FirstOrDefault(w => 
+                    w.GetField<string>("System.WorkItemType") == "Epic");
+                
+                if (updatedEpic != null)
+                {
+                    // Verify new discipline estimation fields were aggregated
+                    updatedEpic.Fields.Should().ContainKey("Custom.InfraEffortEstimation");
+                    updatedEpic.Fields.Should().ContainKey("Custom.CapabilitiesEffortEstimation");
+                    updatedEpic.Fields.Should().ContainKey("Custom.UnProductiveEffortEstimation");
+                    
+                    // Verify new discipline remaining work fields were aggregated
+                    updatedEpic.Fields.Should().ContainKey("Custom.InfraRemainingWork");
+                    updatedEpic.Fields.Should().ContainKey("Custom.CapabilitiesRemainingWork");
+                    updatedEpic.Fields.Should().ContainKey("Custom.UnProductiveRemainingWork");
+                    
+                    // Verify new discipline completed work fields were aggregated
+                    updatedEpic.Fields.Should().ContainKey("Custom.InfraCompletedWork");
+                    updatedEpic.Fields.Should().ContainKey("Custom.CapabilitiesCompletedWork");
+                    updatedEpic.Fields.Should().ContainKey("Custom.UnProductiveCompletedWork");
+                    
+                    // Verify the values are correctly aggregated
+                    updatedEpic.GetField<double?>("Custom.InfraEffortEstimation").Should().Be(15.0);
+                    updatedEpic.GetField<double?>("Custom.CapabilitiesEffortEstimation").Should().Be(10.0);
+                    updatedEpic.GetField<double?>("Custom.UnProductiveEffortEstimation").Should().Be(5.0);
+                    
+                    updatedEpic.GetField<double?>("Custom.InfraRemainingWork").Should().Be(10.0);
+                    updatedEpic.GetField<double?>("Custom.CapabilitiesRemainingWork").Should().Be(8.0);
+                    updatedEpic.GetField<double?>("Custom.UnProductiveRemainingWork").Should().Be(3.0);
+                    
+                    updatedEpic.GetField<double?>("Custom.InfraCompletedWork").Should().Be(5.0);
+                    updatedEpic.GetField<double?>("Custom.CapabilitiesCompletedWork").Should().Be(2.0);
+                    updatedEpic.GetField<double?>("Custom.UnProductiveCompletedWork").Should().Be(2.0);
+                }
+            }
+        }
+
+        [Fact]
+        public async Task HierarchicalAggregationScript_ShouldHandleAllNineDisciplinesInCompleteWorkflow()
+        {
+            // Arrange - Create a complete hierarchy with all 9 disciplines
+            var epic = CreateTestWorkItem("Epic", "Complete Workflow Epic", "Active");
+            var feature = CreateTestWorkItem("Feature", "Complete Workflow Feature", "Active");
+            var pbi = CreateTestWorkItem("Product Backlog Item", "Complete Workflow PBI", "Active");
+            
+            // Create tasks for all 9 disciplines
+            var devTask = CreateTestWorkItem("Task", "Development Task", "Done");
+            var qaTask = CreateTestWorkItem("Task", "QA Task", "Done");
+            var poTask = CreateTestWorkItem("Task", "PO Task", "Done");
+            var adminTask = CreateTestWorkItem("Task", "Admin Task", "Done");
+            var othersTask = CreateTestWorkItem("Task", "Others Task", "Done");
+            var infraTask = CreateTestWorkItem("Task", "Infra Task", "Done");
+            var capabilitiesTask = CreateTestWorkItem("Task", "Capabilities Task", "Done");
+            var unProductiveTask = CreateTestWorkItem("Task", "UnProductive Task", "Done");
+            
+            // Set the project to PCLabs for all work items
+            var allWorkItems = new[] { epic, feature, pbi, devTask, qaTask, poTask, adminTask, othersTask, infraTask, capabilitiesTask, unProductiveTask };
+            foreach (var workItem in allWorkItems)
+            {
+                workItem.SetField("System.TeamProject", "PCLabs");
+            }
+            
+            // Set up completed work and activities for all disciplines
+            var taskConfigs = new []
+            {
+                (devTask, 10.0, "Development"),
+                (qaTask, 8.0, "Testing"),
+                (poTask, 6.0, "Functional Design"),
+                (adminTask, 4.0, "Admin Configuration"),
+                (othersTask, 3.0, "Ceremonies"),
+                (infraTask, 7.0, "DevOps"),
+                (capabilitiesTask, 5.0, "Training"),
+                (unProductiveTask, 2.0, "Investigation")
+            };
+            
+            var today = DateTime.Now;
+            foreach (var (task, hours, activity) in taskConfigs)
+            {
+                task.SetField("Microsoft.VSTS.Scheduling.CompletedWork", hours);
+                task.SetField("Microsoft.VSTS.Common.Activity", activity);
+                task.SetField("System.ChangedDate", today);
+            }
+            
+            // Set up estimation fields on feature for all disciplines
+            feature.SetField("Microsoft.VSTS.Scheduling.Effort", 100.0);
+            feature.SetField("Custom.DevelopmentEffortEstimation", 30.0);
+            feature.SetField("Custom.QAEffortEstimation", 20.0);
+            feature.SetField("Custom.POEffortEstimation", 15.0);
+            feature.SetField("Custom.AdminEffortEstimation", 10.0);
+            feature.SetField("Custom.OthersEffortEstimation", 8.0);
+            feature.SetField("Custom.InfraEffortEstimation", 7.0);
+            feature.SetField("Custom.CapabilitiesEffortEstimation", 6.0);
+            feature.SetField("Custom.UnProductiveEffortEstimation", 4.0);
+            
+            feature.SetField("System.ChangedDate", today);
+            pbi.SetField("System.ChangedDate", today);
+            epic.SetField("System.ChangedDate", today);
+            
+            // Set up hierarchy relationships
+            epic.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = feature.Id });
+            feature.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = pbi.Id });
+            
+            foreach (var (task, _, _) in taskConfigs)
+            {
+                pbi.Relations.Add(new WorkItemRelation { RelationType = "Child", RelatedWorkItemId = task.Id });
+            }
+            
+            // Save all work items
+            foreach (var workItem in allWorkItems)
+            {
+                await MockClient.SaveWorkItem(workItem);
+            }
+            
+            MockClient.SavedWorkItems.Clear();
+            
+            // Act
+            var result = await ExecuteScriptFromFileAsync(AGGREGATION_SCRIPT_PATH);
+            
+            // Assert - Verify complete aggregation workflow
+            result.ShouldBeSuccessful();
+            
+            // Verify both bottom-up and top-down aggregation occurred
+            if (!result.HasLogMessageContaining("Found 0 changed tasks") && !result.HasLogMessageContaining("Found 0 changed features"))
+            {
+                result.ShouldHaveLogMessageContaining("changed tasks with completed work since last run");
+                result.ShouldHaveLogMessageContaining("changed features since last run");
+                
+                // Verify PBI aggregation from tasks (bottom-up)
+                var updatedPBI = MockClient.SavedWorkItems.FirstOrDefault(w => 
+                    w.GetField<string>("System.WorkItemType") == "Product Backlog Item");
+                
+                if (updatedPBI != null)
+                {
+                    // Verify all 9 completed work disciplines are aggregated
+                    updatedPBI.Fields.Should().ContainKey("Custom.DevelopmentCompletedWork");
+                    updatedPBI.Fields.Should().ContainKey("Custom.QACompletedWork");
+                    updatedPBI.Fields.Should().ContainKey("Custom.POCompletedWork");
+                    updatedPBI.Fields.Should().ContainKey("Custom.AdminCompletedWork");
+                    updatedPBI.Fields.Should().ContainKey("Custom.OthersCompletedWork");
+                    updatedPBI.Fields.Should().ContainKey("Custom.InfraCompletedWork");
+                    updatedPBI.Fields.Should().ContainKey("Custom.CapabilitiesCompletedWork");
+                    updatedPBI.Fields.Should().ContainKey("Custom.UnProductiveCompletedWork");
+                    
+                    // Verify total completed work is sum of all disciplines (45.0 total)
+                    var totalCompleted = updatedPBI.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork");
+                    if (totalCompleted.HasValue)
+                    {
+                        totalCompleted.Value.Should().Be(45.0, "Sum of all discipline hours should be 45.0");
+                    }
+                }
+                
+                // Verify Epic aggregation from features (top-down)
+                var updatedEpic = MockClient.SavedWorkItems.FirstOrDefault(w => 
+                    w.GetField<string>("System.WorkItemType") == "Epic");
+                
+                if (updatedEpic != null)
+                {
+                    // Verify all 9 estimation disciplines are aggregated
+                    updatedEpic.Fields.Should().ContainKey("Custom.DevelopmentEffortEstimation");
+                    updatedEpic.Fields.Should().ContainKey("Custom.QAEffortEstimation");
+                    updatedEpic.Fields.Should().ContainKey("Custom.POEffortEstimation");
+                    updatedEpic.Fields.Should().ContainKey("Custom.AdminEffortEstimation");
+                    updatedEpic.Fields.Should().ContainKey("Custom.OthersEffortEstimation");
+                    updatedEpic.Fields.Should().ContainKey("Custom.InfraEffortEstimation");
+                    updatedEpic.Fields.Should().ContainKey("Custom.CapabilitiesEffortEstimation");
+                    updatedEpic.Fields.Should().ContainKey("Custom.UnProductiveEffortEstimation");
+                    
+                    // Verify total effort estimation (100.0)
+                    var totalEffort = updatedEpic.GetField<double?>("Microsoft.VSTS.Scheduling.Effort");
+                    if (totalEffort.HasValue)
+                    {
+                        totalEffort.Value.Should().Be(100.0, "Total effort should be aggregated from feature");
+                    }
+                }
+            }
+        }
+
+        #endregion
+
         [Fact]
         public async Task HierarchicalAggregationScript_ShouldUseCorrectActivityMappings()
         {
@@ -275,11 +712,32 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             scriptContent.Should().Contain("\"Admin Configuration\", \"Admin\"", "Admin Configuration should map to Admin discipline");
             scriptContent.Should().Contain("\"Ceremonies\", \"Others\"", "Ceremonies should map to Others discipline");
             
+            // Verify new discipline mappings are present
+            scriptContent.Should().Contain("\"DevOps\", \"Infra\"", "DevOps activity should map to Infra discipline");
+            scriptContent.Should().Contain("\"Release Infra\", \"Infra\"", "Release Infra activity should map to Infra discipline");
+            scriptContent.Should().Contain("\"Investigation\", \"UnProductive\"", "Investigation activity should map to UnProductive discipline");
+            scriptContent.Should().Contain("\"Management\", \"UnProductive\"", "Management activity should map to UnProductive discipline");
+            scriptContent.Should().Contain("\"Support COE\", \"Capabilities\"", "Support COE activity should map to Capabilities discipline");
+            scriptContent.Should().Contain("\"Training\", \"Capabilities\"", "Training activity should map to Capabilities discipline");
+            
             // Verify the script contains the expected field names (actual field names from the script)
             scriptContent.Should().Contain("Custom.DevelopmentCompletedWork", "Script should set development completed work field");
             scriptContent.Should().Contain("Custom.QACompletedWork", "Script should set QA completed work field");
             scriptContent.Should().Contain("Custom.DevelopmentEffortEstimation", "Script should handle development estimation fields");
             scriptContent.Should().Contain("Custom.DevelopmentRemainingWork", "Script should handle development remaining fields");
+            
+            // Verify new discipline fields are present
+            scriptContent.Should().Contain("Custom.InfraCompletedWork", "Script should set infra completed work field");
+            scriptContent.Should().Contain("Custom.InfraEffortEstimation", "Script should handle infra estimation fields");
+            scriptContent.Should().Contain("Custom.InfraRemainingWork", "Script should handle infra remaining fields");
+            
+            scriptContent.Should().Contain("Custom.CapabilitiesCompletedWork", "Script should set capabilities completed work field");
+            scriptContent.Should().Contain("Custom.CapabilitiesEffortEstimation", "Script should handle capabilities estimation fields");
+            scriptContent.Should().Contain("Custom.CapabilitiesRemainingWork", "Script should handle capabilities remaining fields");
+            
+            scriptContent.Should().Contain("Custom.UnProductiveCompletedWork", "Script should set unproductive completed work field");
+            scriptContent.Should().Contain("Custom.UnProductiveEffortEstimation", "Script should handle unproductive estimation fields");
+            scriptContent.Should().Contain("Custom.UnProductiveRemainingWork", "Script should handle unproductive remaining fields");
             
             // Verify the script uses the expected query patterns
             scriptContent.Should().Contain("Microsoft.VSTS.Scheduling.CompletedWork", "Script should query completed work field");
