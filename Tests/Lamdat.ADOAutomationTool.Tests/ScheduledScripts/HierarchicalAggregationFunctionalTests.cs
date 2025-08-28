@@ -451,7 +451,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             {
                 (CreateTestWorkItem("Task", "Dev Task", "Done"), "Development", 8.0),
                 (CreateTestWorkItem("Task", "QA Task", "Done"), "Testing", 4.0),
-                (CreateTestWorkItem("Task", "Design Task", "Done"), "Design", 2.0),
+                (CreateTestWorkItem("Task", "Design Task", "Done"), "Functional Design", 2.0),
                 (CreateTestWorkItem("Task", "Admin Task", "Done"), "Admin Configuration", 1.0),
                 (CreateTestWorkItem("Task", "Meeting Task", "Done"), "Ceremonies", 3.0),
                 (CreateTestWorkItem("Task", "Unknown Task", "Done"), "Unknown Activity", 2.0) // Should go to Others

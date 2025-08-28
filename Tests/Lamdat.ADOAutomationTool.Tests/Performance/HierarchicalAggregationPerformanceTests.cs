@@ -514,7 +514,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Performance
 
         private string GetRandomActivity()
         {
-            var activities = new[] { "Development", "Testing", "Design", "Code Review", "Investigation" };
+            var activities = new[] { "Development", "Testing", "Functional Design", "Code Review", "Research" };
             return activities[Random.Shared.Next(activities.Length)];
         }
 

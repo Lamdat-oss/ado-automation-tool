@@ -231,7 +231,7 @@
                     ["QAEffortEstimation"] = 0,
                     ["POEffortEstimation"] = 0,
                     ["AdminEffortEstimation"] = 0,
-                    ["OthersEffortEstimation"] = 0     
+                    ["OthersEffortEstimation"] = 0,
                     ["InfraEffortEstimation"] = 0,
                     ["CapabilitiesEffortEstimation"] = 0,
                     ["UnProductiveEffortEstimation"] = 0
@@ -333,6 +333,7 @@
                 epicWorkItem.SetField("Custom.OthersRemainingWork", remainingTotals["OthersRemainingWork"]);
                 epicWorkItem.SetField("Custom.InfraRemainingWork", remainingTotals["InfraRemainingWork"]);
                 epicWorkItem.SetField("Custom.CapabilitiesRemainingWork", remainingTotals["CapabilitiesRemainingWork"]);
+                epicWorkItem.SetField("Custom.UnProductiveRemainingWork", remainingTotals["UnProductiveRemainingWork"]);
 
                 // Update Epic with aggregated completed work values (using simplified Custom.* field names)
                 epicWorkItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", completedTotals["TotalCompletedWork"]);
@@ -847,4 +848,5 @@
 
                 Logger.Information($"Found {affectedPBIs.Count} PBIs, {affectedBugs.Count} bugs, {affectedGlitches.Count} glitches, {affectedFeatures.Count} features and {affectedEpics.Count} epics needing completed work re-aggregation");
             }
+
 

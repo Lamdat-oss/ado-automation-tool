@@ -271,7 +271,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             // Assert - Verify key activity mappings are present in the script
             scriptContent.Should().Contain("\"Development\", \"Development\"", "Development activity should map to Development discipline");
             scriptContent.Should().Contain("\"Testing\", \"QA\"", "Testing activity should map to QA discipline");
-            scriptContent.Should().Contain("\"Design\", \"PO\"", "Design activity should map to PO discipline");
+            scriptContent.Should().Contain("\"Functional Design\", \"PO\"", "Design activity should map to PO discipline");
             scriptContent.Should().Contain("\"Admin Configuration\", \"Admin\"", "Admin Configuration should map to Admin discipline");
             scriptContent.Should().Contain("\"Ceremonies\", \"Others\"", "Ceremonies should map to Others discipline");
             
