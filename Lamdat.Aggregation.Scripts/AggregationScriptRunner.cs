@@ -15,7 +15,6 @@ namespace Lamdat.Aggregation.Scripts
 
         public static async Task<ScheduledScriptResult> Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken CancellationToken, string ScriptRunId, DateTime LastRun)
         {
-
             // Hierarchical Work Item Aggregation Task
             // This script aggregates effort data through the Epic > Feature > PBI/Bug/Glitch > Task hierarchy
             // 1. Bottom-up: Task completed work aggregated to parents (PBI/Bug/Glitch/Feature/Epic)
@@ -44,27 +43,32 @@ namespace Lamdat.Aggregation.Scripts
         {"Ceremonies", "Others"},
         {"Code Review", "Development"},
         {"Data Fix", "Development"},
-        {"Demo", "Others"},
-        {"Design", "PO"},
+        {"Detailed Design", "PO"},
         {"Development", "Development"},
-        {"DevOps", "Others"},
-        {"General - Personal", "Others"},
-        {"Investigation", "Development"},
-        {"Management", "Others"},
+        {"DevOps", "Infra"},
+        {"UnBilled", "Others"},
+        {"Integration", "Development"},
+        {"Investigation", "UnProductive"},
+        {"Research", "Development"},
+        {"Management", "UnProductive"},
         {"Permissions", "Admin"},
         {"Project Management", "Others"},
-        {"Release Upgrade", "Others"},
+        {"Release", "Development"},
         {"Reproduce", "QA"},
         {"Requirements Meeting", "PO"},
-        {"Support", "Others"},
-        {"Tech Lead", "Development"},
-        {"Technical Debts", "Development"},
+        {"Support Team", "Others"},
+        {"Support COE", "Capabilities"},
         {"Test Case", "QA"},
         {"Test Cases Approval", "QA"},
         {"Testing", "QA"},
-        {"Training", "Others"},
-        {"Triage", "Admin"},
-        {"UX/UI", "Others"}
+        {"Training", "Capabilities"},
+        {"First Line Support", "Admin"},
+        {"UX/UI", "PO"},
+        {"Regression Testing", "QA"},
+        {"Functional Design", "PO"},
+        {"Solution Design", "PO"},
+        {"Release Infra", "Infra"}
+
     };
 
                 // Step 1: Find all tasks that have changed since last run (for bottom-up aggregation)
@@ -141,6 +145,7 @@ namespace Lamdat.Aggregation.Scripts
                 Logger.Error(ex, "Hierarchical aggregation failed");
                 return ScheduledScriptResult.Success(5, $"Aggregation failed, will retry in 5 minutes: {ex.Message}");
             }
+
 
             // Process top-down aggregation from Features to Epics
             async Task ProcessTopDownAggregation(List<WorkItem> changedFeatures, ConcurrentDictionary<string, int> stats, IAzureDevOpsClient client)
@@ -243,7 +248,11 @@ namespace Lamdat.Aggregation.Scripts
                     ["QAEffortEstimation"] = 0,
                     ["POEffortEstimation"] = 0,
                     ["AdminEffortEstimation"] = 0,
-                    ["OthersEffortEstimation"] = 0
+                    ["OthersEffortEstimation"] = 0,
+                    ["InfraEffortEstimation"] = 0,
+                    ["CapabilitiesEffortEstimation"] = 0,
+                    ["UnProductiveEffortEstimation"] = 0
+
                 };
 
                 // Initialize aggregation totals for remaining fields (from Features)
@@ -254,7 +263,10 @@ namespace Lamdat.Aggregation.Scripts
                     ["QARemainingWork"] = 0,
                     ["PORemainingWork"] = 0,
                     ["AdminRemainingWork"] = 0,
-                    ["OthersRemainingWork"] = 0
+                    ["OthersRemainingWork"] = 0,
+                    ["InfraRemainingWork"] = 0,
+                    ["CapabilitiesRemainingWork"] = 0,
+                    ["UnProductiveRemainingWork"] = 0
                 };
 
                 // Initialize aggregation totals for completed work fields (from Features)
@@ -265,7 +277,10 @@ namespace Lamdat.Aggregation.Scripts
                     ["QACompletedWork"] = 0,
                     ["POCompletedWork"] = 0,
                     ["AdminCompletedWork"] = 0,
-                    ["OthersCompletedWork"] = 0
+                    ["OthersCompletedWork"] = 0,
+                    ["InfraCompletedWork"] = 0,
+                    ["CapabilitiesCompletedWork"] = 0,
+                    ["UnProductiveCompletedWork"] = 0
                 };
 
                 foreach (var feature in childFeatures)
@@ -283,6 +298,9 @@ namespace Lamdat.Aggregation.Scripts
                     estimationTotals["POEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.POEffortEstimation") ?? 0;
                     estimationTotals["AdminEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.AdminEffortEstimation") ?? 0;
                     estimationTotals["OthersEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.OthersEffortEstimation") ?? 0;
+                    estimationTotals["InfraEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.InfraEffortEstimation") ?? 0;
+                    estimationTotals["CapabilitiesEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.CapabilitiesEffortEstimation") ?? 0;
+                    estimationTotals["UnProductiveEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.UnProductiveEffortEstimation") ?? 0;
 
                     // Aggregate remaining fields from Feature (using simplified Custom.* field names)
                     remainingTotals["TotalRemainingWork"] += featureWorkItem.GetField<double?>("Microsoft.VSTS.Scheduling.RemainingWork") ?? 0;
@@ -291,6 +309,10 @@ namespace Lamdat.Aggregation.Scripts
                     remainingTotals["PORemainingWork"] += featureWorkItem.GetField<double?>("Custom.PORemainingWork") ?? 0;
                     remainingTotals["AdminRemainingWork"] += featureWorkItem.GetField<double?>("Custom.AdminRemainingWork") ?? 0;
                     remainingTotals["OthersRemainingWork"] += featureWorkItem.GetField<double?>("Custom.OthersRemainingWork") ?? 0;
+                    remainingTotals["InfraRemainingWork"] += featureWorkItem.GetField<double?>("Custom.InfraRemainingWork") ?? 0;
+                    remainingTotals["CapabilitiesRemainingWork"] += featureWorkItem.GetField<double?>("Custom.CapabilitiesRemainingWork") ?? 0;
+                    remainingTotals["UnProductiveRemainingWork"] += featureWorkItem.GetField<double?>("Custom.UnProductiveRemainingWork") ?? 0;
+
 
                     // Aggregate completed work fields from Feature (using simplified Custom.* field names)
                     completedTotals["TotalCompletedWork"] += featureWorkItem.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
@@ -299,6 +321,10 @@ namespace Lamdat.Aggregation.Scripts
                     completedTotals["POCompletedWork"] += featureWorkItem.GetField<double?>("Custom.POCompletedWork") ?? 0;
                     completedTotals["AdminCompletedWork"] += featureWorkItem.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
                     completedTotals["OthersCompletedWork"] += featureWorkItem.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
+                    completedTotals["InfraCompletedWork"] += featureWorkItem.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
+                    completedTotals["CapabilitiesCompletedWork"] += featureWorkItem.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
+                    completedTotals["UnProductiveCompletedWork"] += featureWorkItem.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
+
                 }
 
                 // Update Epic with aggregated estimation values (using simplified Custom.* field names)
@@ -309,6 +335,11 @@ namespace Lamdat.Aggregation.Scripts
                 epicWorkItem.SetField("Custom.POEffortEstimation", estimationTotals["POEffortEstimation"]);
                 epicWorkItem.SetField("Custom.AdminEffortEstimation", estimationTotals["AdminEffortEstimation"]);
                 epicWorkItem.SetField("Custom.OthersEffortEstimation", estimationTotals["OthersEffortEstimation"]);
+                epicWorkItem.SetField("Custom.InfraEffortEstimation", estimationTotals["InfraEffortEstimation"]);
+                epicWorkItem.SetField("Custom.CapabilitiesEffortEstimation", estimationTotals["CapabilitiesEffortEstimation"]);
+                epicWorkItem.SetField("Custom.UnProductiveEffortEstimation", estimationTotals["UnProductiveEffortEstimation"]);
+
+
 
                 // Update Epic with aggregated remaining values (using simplified Custom.* field names)
                 epicWorkItem.SetField("Microsoft.VSTS.Scheduling.RemainingWork", remainingTotals["TotalRemainingWork"]);
@@ -317,6 +348,9 @@ namespace Lamdat.Aggregation.Scripts
                 epicWorkItem.SetField("Custom.PORemainingWork", remainingTotals["PORemainingWork"]);
                 epicWorkItem.SetField("Custom.AdminRemainingWork", remainingTotals["AdminRemainingWork"]);
                 epicWorkItem.SetField("Custom.OthersRemainingWork", remainingTotals["OthersRemainingWork"]);
+                epicWorkItem.SetField("Custom.InfraRemainingWork", remainingTotals["InfraRemainingWork"]);
+                epicWorkItem.SetField("Custom.CapabilitiesRemainingWork", remainingTotals["CapabilitiesRemainingWork"]);
+                epicWorkItem.SetField("Custom.UnProductiveRemainingWork", remainingTotals["UnProductiveRemainingWork"]);
 
                 // Update Epic with aggregated completed work values (using simplified Custom.* field names)
                 epicWorkItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", completedTotals["TotalCompletedWork"]);
@@ -325,6 +359,9 @@ namespace Lamdat.Aggregation.Scripts
                 epicWorkItem.SetField("Custom.POCompletedWork", completedTotals["POCompletedWork"]);
                 epicWorkItem.SetField("Custom.AdminCompletedWork", completedTotals["AdminCompletedWork"]);
                 epicWorkItem.SetField("Custom.OthersCompletedWork", completedTotals["OthersCompletedWork"]);
+                epicWorkItem.SetField("Custom.InfraCompletedWork", completedTotals["InfraCompletedWork"]);
+                epicWorkItem.SetField("Custom.CapabilitiesCompletedWork", completedTotals["CapabilitiesCompletedWork"]);
+                epicWorkItem.SetField("Custom.UnProductiveCompletedWork", completedTotals["UnProductiveCompletedWork"]);
 
                 // Update aggregation timestamp
                 //epicWorkItem.SetField("Custom.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
@@ -450,6 +487,11 @@ namespace Lamdat.Aggregation.Scripts
                             epicWorkItem.SetField("Custom.POCompletedWork", epicCompletedWork["POCompletedWork"]);
                             epicWorkItem.SetField("Custom.AdminCompletedWork", epicCompletedWork["AdminCompletedWork"]);
                             epicWorkItem.SetField("Custom.OthersCompletedWork", epicCompletedWork["OthersCompletedWork"]);
+                            epicWorkItem.SetField("Custom.InfraCompletedWork", epicCompletedWork["InfraCompletedWork"]);
+                            epicWorkItem.SetField("Custom.CapabilitiesCompletedWork", epicCompletedWork["CapabilitiesCompletedWork"]);
+                            epicWorkItem.SetField("Custom.UnProductiveCompletedWork", epicCompletedWork["UnProductiveCompletedWork"]);
+
+
                             //epicWorkItem.SetField("Custom.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
 
                             await client.SaveWorkItem(epicWorkItem);
@@ -477,7 +519,10 @@ namespace Lamdat.Aggregation.Scripts
                     ["QACompletedWork"] = 0,
                     ["POCompletedWork"] = 0,
                     ["AdminCompletedWork"] = 0,
-                    ["OthersCompletedWork"] = 0
+                    ["OthersCompletedWork"] = 0,
+                    ["InfraCompletedWork"] = 0,
+                    ["CapabilitiesCompletedWork"] = 0,
+                    ["UnProductiveCompletedWork"] = 0
                 };
 
                 // Step 1: Get all PBI/Bug/Glitch children of this Feature
@@ -504,6 +549,11 @@ namespace Lamdat.Aggregation.Scripts
                     aggregatedData["POCompletedWork"] += pbi.GetField<double?>("Custom.POCompletedWork") ?? 0;
                     aggregatedData["AdminCompletedWork"] += pbi.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
                     aggregatedData["OthersCompletedWork"] += pbi.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
+                    aggregatedData["InfraCompletedWork"] += pbi.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
+                    aggregatedData["CapabilitiesCompletedWork"] += pbi.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
+                    aggregatedData["UnProductiveCompletedWork"] += pbi.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
+
+
 
                 }
 
@@ -521,7 +571,10 @@ namespace Lamdat.Aggregation.Scripts
                     ["QACompletedWork"] = 0,
                     ["POCompletedWork"] = 0,
                     ["AdminCompletedWork"] = 0,
-                    ["OthersCompletedWork"] = 0
+                    ["OthersCompletedWork"] = 0,
+                    ["InfraCompletedWork"] = 0,
+                    ["CapabilitiesCompletedWork"] = 0,
+                    ["UnProductiveCompletedWork"] = 0
                 };
 
                 // Step 1: Get all Feature children of this Epic
@@ -550,7 +603,9 @@ namespace Lamdat.Aggregation.Scripts
                     aggregatedData["POCompletedWork"] += feature.GetField<double?>("Custom.POCompletedWork") ?? 0;
                     aggregatedData["AdminCompletedWork"] += feature.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
                     aggregatedData["OthersCompletedWork"] += feature.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
-
+                    aggregatedData["InfraCompletedWork"] += feature.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
+                    aggregatedData["CapabilitiesCompletedWork"] += feature.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
+                    aggregatedData["UnProductiveCompletedWork"] += feature.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
 
                 }
 
@@ -570,6 +625,10 @@ namespace Lamdat.Aggregation.Scripts
                 workItem.SetField("Custom.POCompletedWork", aggregatedData["POCompletedWork"]);
                 workItem.SetField("Custom.AdminCompletedWork", aggregatedData["AdminCompletedWork"]);
                 workItem.SetField("Custom.OthersCompletedWork", aggregatedData["OthersCompletedWork"]);
+                workItem.SetField("Custom.InfraCompletedWork", aggregatedData["InfraCompletedWork"]);
+                workItem.SetField("Custom.CapabilitiesCompletedWork", aggregatedData["CapabilitiesCompletedWork"]);
+                workItem.SetField("Custom.UnProductiveCompletedWork", aggregatedData["UnProductiveCompletedWork"]);
+
                 //workItem.SetField("Custom.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
 
                 await client.SaveWorkItem(workItem);
@@ -591,7 +650,10 @@ namespace Lamdat.Aggregation.Scripts
                     ["QACompletedWork"] = 0,
                     ["POCompletedWork"] = 0,
                     ["AdminCompletedWork"] = 0,
-                    ["OthersCompletedWork"] = 0
+                    ["OthersCompletedWork"] = 0,
+                    ["InfraCompletedWork"] = 0,
+                    ["CapabilitiesCompletedWork"] = 0,
+                    ["UnProductiveCompletedWork"] = 0
                 };
 
                 // Get all child tasks for this work item using the new simple WIQL method
@@ -639,6 +701,16 @@ namespace Lamdat.Aggregation.Scripts
                                 case "Others":
                                     aggregatedData["OthersCompletedWork"] += completedWork;
                                     break;
+                                case "Infra":
+                                    aggregatedData["InfraCompletedWork"] += completedWork;
+                                    break;
+                                case "Capabilities":
+                                    aggregatedData["CapabilitiesCompletedWork"] += completedWork;
+                                    break;
+                                case "UnProductive":
+                                    aggregatedData["UnProductiveCompletedWork"] += completedWork;
+                                    break;
+
                             }
                         }
                         else
@@ -795,7 +867,9 @@ namespace Lamdat.Aggregation.Scripts
             }
 
 
+
         }
+
     }
 }
 
