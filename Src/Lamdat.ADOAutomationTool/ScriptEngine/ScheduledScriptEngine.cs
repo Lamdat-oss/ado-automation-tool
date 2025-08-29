@@ -43,11 +43,11 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
             var errCol = new ConcurrentDictionary<string, string>();
             string err = null;
 
-            // Read timeout from configuration, fallback to 60 seconds if not set or invalid
-            int timeoutSeconds = 600;
-            if (context.ScriptExecutionTimeoutSeconds > 0)
+            // Use dedicated scheduled script timeout, falling back to regular script timeout if not configured
+            int timeoutSeconds = _settings.ScheduledScriptExecutionTimeoutSeconds ?? _settings.ScriptExecutionTimeoutSeconds;
+            if (timeoutSeconds <= 0)
             {
-                timeoutSeconds = context.ScriptExecutionTimeoutSeconds;
+                timeoutSeconds = 3600; // Default to 1 hour for scheduled scripts
             }
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
@@ -73,7 +73,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                     return null;
                 }
 
-                _logger.Information($"Executing {scriptsToExecute.Count} of {orderedScriptFiles.Length} scheduled scripts");
+                _logger.Information($"Executing {scriptsToExecute.Count} of {orderedScriptFiles.Length} scheduled scripts (timeout: {timeoutSeconds}s)");
 
                 foreach (var scriptFile in scriptsToExecute)
                 {

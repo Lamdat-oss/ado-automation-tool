@@ -27,8 +27,9 @@ To use JSON configuration, create a `config.json` file with the following struct
   "Settings": {
     "CollectionURL": "",
     "PAT": "",
-    ScriptExecutionTimeoutSeconds: 60,
-    MaxQueueWebHookRequestCount: 1000,
+    "ScriptExecutionTimeoutSeconds": 60,
+    "ScheduledScriptExecutionTimeoutSeconds": 3600,
+    "MaxQueueWebHookRequestCount": 1000,
     "BypassRules": true,
     "SharedKey": "",
     "AllowedCorsOrigin": "*",
@@ -61,7 +62,8 @@ Alternatively, you can use environment variables to configure the tool. Set the 
 - `SETTINGS__SHAREDKEY`: Key used to authenticate to the web service.
 - `SETTINGS__NOTVALIDCERTIFICATES`: If to allow working with not valid azure devops certificates
 - `SETTINGS__ENABLEAUTOHTTPSREDIRECT`: If to enable auto http to https redirect
-- `SETTINGS__SCRIPTEXECUTIONTIMEOUTSECONDS`: SCRIPT EXECUTION TIMEOUT IN SECONDS, default is 60 seconds.
+- `SETTINGS__SCRIPTEXECUTIONTIMEOUTSECONDS`: Script execution timeout in seconds for webhook scripts, default is 60 seconds.
+- `SETTINGS__SCHEDULEDSCRIPTEXECUTIONTIMEOUTSECONDS`: Script execution timeout in seconds for scheduled scripts, default is 3600 seconds (1 hour). If not specified, falls back to `ScriptExecutionTimeoutSeconds`.
 - `SETTINGS__MAXQUEUEWEBHOOKREQUESTCOUNT`: Maximum number of webhook requests to queue before rejecting new ones, default is 1000.
 - `SETTINGS__SCHEDULEDTASKINTERVALMINUTES`: How often the service checks for scheduled scripts to execute (recommended: 1 minute for fine-grained control)
 - `SETTINGS__SCHEDULEDSCRIPTDEFAULTLASTRUN`: Default last run date for scripts on first execution after system restart
@@ -80,6 +82,45 @@ Alternatively, you can use environment variables to configure the tool. Set the 
    - Set your shared key defined in the configuration file or with environment variable (SETTINGS__SHAREDKEY)
 
 5. Your ADO Automation Tool is now ready to receive webhooks and execute scripts.
+
+## Script Execution Timeouts
+
+The ADO Automation Tool supports separate timeout configurations for different types of scripts:
+
+### Webhook Scripts (Default: 60 seconds)
+- **Configuration**: `ScriptExecutionTimeoutSeconds`
+- **Purpose**: Scripts triggered by Azure DevOps webhooks
+- **Recommended**: Keep relatively short (60-300 seconds) since webhooks should respond quickly
+- **Example**: Processing work item updates, creating related items, sending notifications
+
+### Scheduled Scripts (Default: 3600 seconds / 1 hour)
+- **Configuration**: `ScheduledScriptExecutionTimeoutSeconds`
+- **Purpose**: Scripts executed on a timer schedule
+- **Recommended**: Can be longer (300-3600+ seconds) for complex data processing tasks
+- **Example**: Bulk data processing, report generation, cleanup tasks, synchronization
+
+### Configuration Examples
+
+```json
+{
+  "Settings": {
+    "ScriptExecutionTimeoutSeconds": 120,
+    "ScheduledScriptExecutionTimeoutSeconds": 1800
+  }
+}
+```
+
+```bash
+# Environment variables
+-e "SETTINGS__SCRIPTEXECUTIONTIMEOUTSECONDS=120"
+-e "SETTINGS__SCHEDULEDSCRIPTEXECUTIONTIMEOUTSECONDS=1800"
+```
+
+### Timeout Behavior
+- If a script exceeds its timeout, it will be cancelled and an error will be logged
+- Webhook timeouts are typically shorter to ensure quick webhook responses
+- Scheduled script timeouts can be longer to accommodate complex processing
+- If `ScheduledScriptExecutionTimeoutSeconds` is not specified, it falls back to `ScriptExecutionTimeoutSeconds`
 
 # Webhook Scripts (Rules Language)
 
@@ -303,6 +344,7 @@ The ADO Automation Tool supports executing C# scripts on a timer schedule with *
 - **Intelligent Scheduling**: Only scripts that are due for execution are run
 - **Memory Tracking**: Last run times are tracked in memory for each script
 - **Flexible Return Values**: Scripts can return success, failure, and next interval information
+- **Separate Timeouts**: Scheduled scripts can have longer timeouts than webhook scripts
 
 ## Scheduled Scripts Configuration
 
@@ -314,7 +356,8 @@ Add the following settings to your `appsettings.json` file:
 {
   "Settings": {
     "ScheduledTaskIntervalMinutes": 1,
-    "ScheduledScriptDefaultLastRun": "7"
+    "ScheduledScriptDefaultLastRun": "7",
+    "ScheduledScriptExecutionTimeoutSeconds": 3600
   }
 }
 ```
@@ -323,6 +366,7 @@ Add the following settings to your `appsettings.json` file:
   - Can be an ISO date string: `"2024-01-01T00:00:00Z"`
   - Can be number of days ago: `"7"` (7 days ago)
   - If not set, defaults to current time
+- `ScheduledScriptExecutionTimeoutSeconds`: Timeout in seconds for scheduled script execution (default: 3600 seconds / 1 hour)
 
 ## Creating Scheduled Scripts
 
@@ -420,7 +464,7 @@ In scheduled scripts, you have access to:
 - `EventType`: String - Always "ScheduledTask" for scheduled executions
 - `Project`: String - Can be set by scripts if needed
 - `Self`: WorkItem - A placeholder work item (ID = 0)
-- `cancellationToken`: CancellationToken - For handling timeouts
+- `CancellationToken`: CancellationToken - For handling timeouts (respects ScheduledScriptExecutionTimeoutSeconds)
 
 ### ScheduledScriptResult Options
 
@@ -493,12 +537,13 @@ The service provides detailed logging including last run information:
 - When each script is due for execution
 - Last run timestamp for each script
 - Execution start/completion times
-- Script execution duration
+- Script execution duration with timeout information
 - Next scheduled execution time for each script
-- Any errors or warnings
+- Any errors or warnings including timeout errors
 
 Example log output:
 ```
+[INFO] Executing 3 of 5 scheduled scripts (timeout: 3600s)
 [INFO] First execution for script 'data-sync.rule' (Last run will be: 2024-01-15 03:00:00)
 [INFO] Script 'data-sync.rule' completed. Last run: 2024-01-15 03:00:00, Next execution in 30 minutes at 2024-01-15 10:30:00
 ```
@@ -513,8 +558,20 @@ The scheduled task service:
 - Prevents overlapping executions
 - Handles errors gracefully without stopping the service
 - Maintains backward compatibility with existing scripts
+- Uses separate timeout configuration for scheduled scripts (longer than webhook scripts)
 
 ## Configuration Examples
+
+### Complete Configuration
+```json
+{
+  "Settings": {
+    "ScheduledTaskIntervalMinutes": 1,
+    "ScheduledScriptDefaultLastRun": "7",
+    "ScheduledScriptExecutionTimeoutSeconds": 3600
+  }
+}
+```
 
 ### Days Ago Configuration
 ```json
@@ -555,6 +612,7 @@ Uses current time as default last run (same as not setting the value).
 - Use appropriate intervals to avoid overwhelming the system
 - Consider business hours and system load when setting intervals
 - Implement batching for large datasets in incremental processing
+- Scheduled scripts have longer default timeouts (1 hour) to accommodate complex processing
 
 ## Migration Guide
 
@@ -565,7 +623,8 @@ Uses current time as default last run (same as not setting the value).
 3. **To use LastRun**: Access the `LastRun` variable for incremental processing
 4. **Recommended**: Update `ScheduledTaskIntervalMinutes` to 1 minute in configuration
 5. **Configure**: Set `ScheduledScriptDefaultLastRun` for appropriate default behavior
-6. **Test**: Verify scripts run at expected intervals and process incremental data correctly
+6. **Configure timeouts**: Set `ScheduledScriptExecutionTimeoutSeconds` for longer running scripts
+7. **Test**: Verify scripts run at expected intervals and process incremental data correctly
 
 ### Example Migration
 
@@ -585,4 +644,5 @@ ProcessItems(changedItems);
 // Return custom interval based on activity
 var nextInterval = changedItems.Count > 50 ? 10 : 30;
 return ScheduledScriptResult.Success(nextInterval, $"Processed {changedItems.Count} items");
+
 

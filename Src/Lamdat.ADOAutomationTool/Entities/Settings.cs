@@ -34,7 +34,14 @@
 
         public string? S3StorageRegion { get; set; }
 
-        public int ScriptExecutionTimeoutSeconds { get; set; }
+        public int ScriptExecutionTimeoutSeconds { get; set; } = 60 * 60 * 1;
+
+        /// <summary>
+        /// Timeout in seconds for scheduled script execution. 
+        /// If not specified, defaults to ScriptExecutionTimeoutSeconds.
+        /// Scheduled scripts often need longer execution times than webhook scripts.
+        /// </summary>
+        public int? ScheduledScriptExecutionTimeoutSeconds { get; set; }
 
         public int MaxQueueWebHookRequestCount { get; set; } = 1000;
 
