@@ -163,7 +163,7 @@ namespace Lamdat.Aggregation.Scripts
 
                 Logger.Information($"Processing {changedFeatures.Count} changed features in {featureBatches.Count} batches of {batchSize}");
 
-                foreach (var featureBatch in featureBatches)
+                foreach (var featureBatch in featureBatches) // finding parents of features in batches
                 {
                     try
                     {
