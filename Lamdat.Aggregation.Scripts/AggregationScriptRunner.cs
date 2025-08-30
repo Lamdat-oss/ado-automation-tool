@@ -123,9 +123,13 @@ namespace Lamdat.Aggregation.Scripts
 
                 Logger.Information($"Found {changedFeatures.Count} changed features since last run");
 
-                if (changedTasks.Count == 0 && changedFeatures.Count == 0)
+                // Check for work items in "Removed" state that need parent recalculation
+                var removedWorkItemsCount = await CheckForRemovedWorkItems(Logger, LastRun, Client);
+                Logger.Information($"Found {removedWorkItemsCount} work items in 'Removed' state that have changed since last run");
+
+                if (changedTasks.Count == 0 && changedFeatures.Count == 0 && removedWorkItemsCount == 0)
                 {
-                    Logger.Information("No tasks or features with changes found - no aggregation needed");
+                    Logger.Information("No tasks, features, or removed work items with changes found - no aggregation needed");
                     return ScheduledScriptResult.Success(10, "No aggregation needed - next check in 10 minutes");
                 }
 
@@ -139,11 +143,12 @@ namespace Lamdat.Aggregation.Scripts
                     ["GlitchesUpdated"] = 0,
                     ["FeaturesUpdated"] = 0,
                     ["EpicsUpdated"] = 0,
+                    ["RemovedItemsProcessed"] = 0,
                     ["Errors"] = 0
                 };
 
-                // Step 3: Process bottom-up aggregation (Tasks → Parents)
-                if (changedTasks.Count > 0)
+                // Step 3: Process bottom-up aggregation (Tasks → Parents) OR handle removed work items
+                if (changedTasks.Count > 0 || removedWorkItemsCount > 0)
                 {
                     await ProcessMultiLevelCompletedWorkAggregation(changedTasks, disciplineMappings, aggregationStats, Client);
                 }
@@ -162,10 +167,11 @@ namespace Lamdat.Aggregation.Scripts
                 Logger.Information($"  - Glitches updated: {aggregationStats["GlitchesUpdated"]}");
                 Logger.Information($"  - Features updated: {aggregationStats["FeaturesUpdated"]}");
                 Logger.Information($"  - Epics updated: {aggregationStats["EpicsUpdated"]}");
+                Logger.Information($"  - Removed items processed: {aggregationStats["RemovedItemsProcessed"]}");
                 Logger.Information($"  - Errors: {aggregationStats["Errors"]}");
 
                 var totalWorkItemsUpdated = aggregationStats["PBIsUpdated"] + aggregationStats["BugsUpdated"] + aggregationStats["GlitchesUpdated"] + aggregationStats["FeaturesUpdated"] + aggregationStats["EpicsUpdated"];
-                var message = $"Processed {changedTasks.Count} tasks + {changedFeatures.Count} features, updated {totalWorkItemsUpdated} work items";
+                var message = $"Processed {changedTasks.Count} tasks + {changedFeatures.Count} features + {removedWorkItemsCount} removed items, updated {totalWorkItemsUpdated} work items";
                 return ScheduledScriptResult.Success(10, message);
             }
             catch (Exception ex)
@@ -377,7 +383,6 @@ namespace Lamdat.Aggregation.Scripts
                 epicWorkItem.SetField("Custom.UnProductiveEffortEstimation", Math.Round(estimationTotals["UnProductiveEffortEstimation"], 2));
 
 
-
                 // Update Epic with aggregated remaining values (using simplified Custom.* field names)     
                 epicWorkItem.SetField("Microsoft.VSTS.Scheduling.RemainingWork", Math.Round(remainingTotals["TotalRemainingWork"], 2));
                 epicWorkItem.SetField("Custom.DevelopmentRemainingWork", Math.Round(remainingTotals["DevelopmentRemainingWork"], 2));
@@ -423,6 +428,10 @@ namespace Lamdat.Aggregation.Scripts
                 var affectedEpics = new HashSet<int>();
 
                 await CalculateAffectedParentWorkItems(Logger, changedTasks, client, affectedPBIs, affectedBugs, affectedGlitches, affectedFeatures, affectedEpics);
+
+                // Add work items in "Removed" state that have changed since last run
+                // These need to be included so their parents can be recalculated correctly
+                await AddRemovedWorkItemsToAffectedCollections(Logger, LastRun, client, affectedPBIs, affectedBugs, affectedGlitches, affectedFeatures, affectedEpics, stats);
 
                 var allWorkItemsWithTasks = new ConcurrentBag<int>();
 
@@ -920,7 +929,6 @@ namespace Lamdat.Aggregation.Scripts
                                         AND [Target].[System.WorkItemType] = 'Epic'";
 
                         var epicParents = await client.QueryWorkItemsByWiql(epicParentsQuery);
-                        Logger.Debug($"Found {epicParents.Count} epic parent relationships for batch of {featureBatch.Count} features");
 
                         foreach (var parent in epicParents)
                         {
@@ -935,14 +943,181 @@ namespace Lamdat.Aggregation.Scripts
                 Logger.Information($"Found {affectedPBIs.Count} PBIs, {affectedBugs.Count} bugs, {affectedGlitches.Count} glitches, {affectedFeatures.Count} features and {affectedEpics.Count} epics needing completed work re-aggregation");
             }
 
+            // Find Feature parents for removed PBI/Bug/Glitch items
+            async Task FindFeatureParentsForRemovedItems(ILogger Logger, List<WorkItem> removedItems, IAzureDevOpsClient client, HashSet<int> affectedFeatures)
+            {
+                if (removedItems.Count == 0) return;
 
+                const int batchSize = 50;
+                var itemBatches = removedItems.Select((item, index) => new { item, index })
+                                             .GroupBy(x => x.index / batchSize)
+                                             .Select(g => g.Select(x => x.item).ToList())
+                                             .ToList();
 
+                foreach (var itemBatch in itemBatches)
+                {
+                    var itemIds = string.Join(",", itemBatch.Select(i => i.Id));
+
+                    var featureParentsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                                                FROM WorkItemLinks
+                                                WHERE [Source].[System.Id] IN ({itemIds})
+                                                AND [Source].[System.TeamProject] = 'PCLabs'
+                                                AND [Target].[System.TeamProject] = 'PCLabs'
+                                                AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
+                                                AND [Target].[System.WorkItemType] = 'Feature'";
+
+                    var featureParents = await client.QueryWorkItemsByWiql(featureParentsQuery);
+
+                    foreach (var parent in featureParents)
+                    {
+                        if (parent.WorkItemType == "Feature")
+                        {
+                            affectedFeatures.Add(parent.Id);
+                        }
+                    }
+                }
+            }
+
+            // Find Epic parents for removed Feature items
+            async Task FindEpicParentsForRemovedItems(ILogger Logger, List<WorkItem> removedFeatures, IAzureDevOpsClient client, HashSet<int> affectedEpics)
+            {
+                if (removedFeatures.Count == 0) return;
+
+                const int batchSize = 50;
+                var featureBatches = removedFeatures.Select((feature, index) => new { feature, index })
+                                                   .GroupBy(x => x.index / batchSize)
+                                                   .Select(g => g.Select(x => x.feature).ToList())
+                                                   .ToList();
+
+                foreach (var featureBatch in featureBatches)
+                {
+                    var featureIds = string.Join(",", featureBatch.Select(f => f.Id));
+
+                    var epicParentsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                                            FROM WorkItemLinks
+                                            WHERE [Source].[System.Id] IN ({featureIds})
+                                            AND [Source].[System.TeamProject] = 'PCLabs'
+                                            AND [Target].[System.TeamProject] = 'PCLabs'
+                                            AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
+                                            AND [Target].[System.WorkItemType] = 'Epic'";
+
+                    var epicParents = await client.QueryWorkItemsByWiql(epicParentsQuery);
+
+                    foreach (var parent in epicParents)
+                    {
+                        if (parent.WorkItemType == "Epic")
+                        {
+                            affectedEpics.Add(parent.Id);
+                        }
+                    }
+                }
+            }
+
+            // Check for removed work items without processing (used for early exit decision)
+            async Task<int> CheckForRemovedWorkItems(ILogger Logger, DateTime LastRun, IAzureDevOpsClient client)
+            {
+                Logger.Debug("Checking for work items in 'Removed' state that have changed since last run");
+
+                var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
+
+                // Query for all work items in "Removed" state that have changed since last run
+                var removedWorkItemsQuery = $@"SELECT [System.Id], [System.ChangedDate]
+                                             FROM WorkItems 
+                                             WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
+                                             AND [System.TeamProject] = 'PCLabs'
+                                             AND [System.State] = 'Removed'
+                                             AND [System.ChangedDate] >= '{sinceLastRunDate}'";
+
+                var allRemovedWorkItems = await client.QueryWorkItemsByWiql(removedWorkItemsQuery);
+
+                // Filter with precise UTC comparison
+                var removedWorkItems = allRemovedWorkItems.Where(item =>
+                {
+                    var changedDate = item.GetField<DateTime?>("System.ChangedDate");
+                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                }).ToList();
+
+                Logger.Debug($"Found {removedWorkItems.Count} work items in 'Removed' state for early exit check");
+                return removedWorkItems.Count;
+            }
+
+            // Add work items in "Removed" state to affected collections for parent recalculation
+            async Task AddRemovedWorkItemsToAffectedCollections(ILogger Logger, DateTime LastRun, IAzureDevOpsClient client, HashSet<int> affectedPBIs, HashSet<int> affectedBugs, HashSet<int> affectedGlitches, HashSet<int> affectedFeatures, HashSet<int> affectedEpics, ConcurrentDictionary<string, int> stats)
+            {
+                Logger.Information("Finding work items in 'Removed' state that have changed since last run");
+
+                var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
+
+                // Query for all work items in "Removed" state that have changed since last run
+                var removedWorkItemsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
+                                             FROM WorkItems 
+                                             WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
+                                             AND [System.TeamProject] = 'PCLabs'
+                                             AND [System.State] = 'Removed'
+                                             AND [System.ChangedDate] >= '{sinceLastRunDate}'
+                                             ORDER BY [System.ChangedDate]";
+
+                var allRemovedWorkItems = await client.QueryWorkItemsByWiql(removedWorkItemsQuery);
+
+                // Filter with precise UTC comparison
+                var removedWorkItems = allRemovedWorkItems.Where(item =>
+                {
+                    var changedDate = item.GetField<DateTime?>("System.ChangedDate");
+                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                }).ToList();
+
+                Logger.Information($"Found {removedWorkItems.Count} work items in 'Removed' state that have changed since last run");
+
+                if (removedWorkItems.Count == 0)
+                {
+                    Logger.Debug("No removed work items found - skipping removed items processing");
+                    return;
+                }
+
+                // Separate removed items by type for targeted parent queries
+                var removedTasks = removedWorkItems.Where(wi => wi.WorkItemType == "Task").ToList();
+                var removedPBIs = removedWorkItems.Where(wi => wi.WorkItemType == "Product Backlog Item").ToList();
+                var removedBugs = removedWorkItems.Where(wi => wi.WorkItemType == "Bug").ToList();
+                var removedGlitches = removedWorkItems.Where(wi => wi.WorkItemType == "Glitch").ToList();
+                var removedFeatures = removedWorkItems.Where(wi => wi.WorkItemType == "Feature").ToList();
+
+                Logger.Debug($"Removed items breakdown: {removedTasks.Count} tasks, {removedPBIs.Count} PBIs, {removedBugs.Count} bugs, {removedGlitches.Count} glitches, {removedFeatures.Count} features");
+
+                // For removed tasks, find their PBI/Bug/Glitch/Feature/Epic parents
+                if (removedTasks.Count > 0)
+                {
+                    await CalculateAffectedParentWorkItems(Logger, removedTasks, client, affectedPBIs, affectedBugs, affectedGlitches, affectedFeatures, affectedEpics);
+                    Logger.Debug($"Added parents of {removedTasks.Count} removed tasks to affected collections");
+                }
+
+                // For removed PBIs/Bugs/Glitches, find their Feature parents
+                var removedWorkItemsNeedingFeatureParents = new List<WorkItem>();
+                removedWorkItemsNeedingFeatureParents.AddRange(removedPBIs);
+                removedWorkItemsNeedingFeatureParents.AddRange(removedBugs);
+                removedWorkItemsNeedingFeatureParents.AddRange(removedGlitches);
+
+                if (removedWorkItemsNeedingFeatureParents.Count > 0)
+                {
+                    await FindFeatureParentsForRemovedItems(Logger, removedWorkItemsNeedingFeatureParents, client, affectedFeatures);
+                    Logger.Debug($"Added Feature parents of {removedWorkItemsNeedingFeatureParents.Count} removed PBI/Bug/Glitch items to affected collections");
+                }
+
+                // For removed Features, find their Epic parents
+                if (removedFeatures.Count > 0)
+                {
+                    await FindEpicParentsForRemovedItems(Logger, removedFeatures, client, affectedEpics);
+                    Logger.Debug($"Added Epic parents of {removedFeatures.Count} removed Feature items to affected collections");
+                }
+
+                Logger.Information($"Completed processing removed work items - added parents to affected collections for recalculation");
+                
+                // Update statistics for removed items processed
+                if (stats.ContainsKey("RemovedItemsProcessed"))
+                {
+                    stats["RemovedItemsProcessed"] = removedWorkItems.Count;
+                }
+            }
         }
 
     }
 }
-
-
-
-
-
