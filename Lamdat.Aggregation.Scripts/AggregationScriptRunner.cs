@@ -328,40 +328,41 @@ namespace Lamdat.Aggregation.Scripts
                 }
 
                 // Update Epic with aggregated estimation values (using simplified Custom.* field names)
-                epicWorkItem.SetField("Microsoft.VSTS.Scheduling.Effort", estimationTotals["TotalEffortEstimation"]);
-                epicWorkItem.SetField("Custom.TotalEffortEstimation", estimationTotals["TotalEffortEstimation"]);
-                epicWorkItem.SetField("Custom.DevelopmentEffortEstimation", estimationTotals["DevelopmentEffortEstimation"]);
-                epicWorkItem.SetField("Custom.QAEffortEstimation", estimationTotals["QAEffortEstimation"]);
-                epicWorkItem.SetField("Custom.POEffortEstimation", estimationTotals["POEffortEstimation"]);
-                epicWorkItem.SetField("Custom.AdminEffortEstimation", estimationTotals["AdminEffortEstimation"]);
-                epicWorkItem.SetField("Custom.OthersEffortEstimation", estimationTotals["OthersEffortEstimation"]);
-                epicWorkItem.SetField("Custom.InfraEffortEstimation", estimationTotals["InfraEffortEstimation"]);
-                epicWorkItem.SetField("Custom.CapabilitiesEffortEstimation", estimationTotals["CapabilitiesEffortEstimation"]);
-                epicWorkItem.SetField("Custom.UnProductiveEffortEstimation", estimationTotals["UnProductiveEffortEstimation"]);
+                // Update Epic with aggregated estimation values (using simplified Custom.* field names)
+                epicWorkItem.SetField("Microsoft.VSTS.Scheduling.Effort", Math.Round(estimationTotals["TotalEffortEstimation"], 2));
+                epicWorkItem.SetField("Custom.TotalEffortEstimation", Math.Round(estimationTotals["TotalEffortEstimation"], 2));
+                epicWorkItem.SetField("Custom.DevelopmentEffortEstimation", Math.Round(estimationTotals["DevelopmentEffortEstimation"], 2));
+                epicWorkItem.SetField("Custom.QAEffortEstimation", Math.Round(estimationTotals["QAEffortEstimation"], 2));
+                epicWorkItem.SetField("Custom.POEffortEstimation", Math.Round(estimationTotals["POEffortEstimation"], 2));
+                epicWorkItem.SetField("Custom.AdminEffortEstimation", Math.Round(estimationTotals["AdminEffortEstimation"], 2));
+                epicWorkItem.SetField("Custom.OthersEffortEstimation", Math.Round(estimationTotals["OthersEffortEstimation"], 2));
+                epicWorkItem.SetField("Custom.InfraEffortEstimation", Math.Round(estimationTotals["InfraEffortEstimation"], 2));
+                epicWorkItem.SetField("Custom.CapabilitiesEffortEstimation", Math.Round(estimationTotals["CapabilitiesEffortEstimation"], 2));
+                epicWorkItem.SetField("Custom.UnProductiveEffortEstimation", Math.Round(estimationTotals["UnProductiveEffortEstimation"], 2));
 
 
 
-                // Update Epic with aggregated remaining values (using simplified Custom.* field names)
-                epicWorkItem.SetField("Microsoft.VSTS.Scheduling.RemainingWork", remainingTotals["TotalRemainingWork"]);
-                epicWorkItem.SetField("Custom.DevelopmentRemainingWork", remainingTotals["DevelopmentRemainingWork"]);
-                epicWorkItem.SetField("Custom.QARemainingWork", remainingTotals["QARemainingWork"]);
-                epicWorkItem.SetField("Custom.PORemainingWork", remainingTotals["PORemainingWork"]);
-                epicWorkItem.SetField("Custom.AdminRemainingWork", remainingTotals["AdminRemainingWork"]);
-                epicWorkItem.SetField("Custom.OthersRemainingWork", remainingTotals["OthersRemainingWork"]);
-                epicWorkItem.SetField("Custom.InfraRemainingWork", remainingTotals["InfraRemainingWork"]);
-                epicWorkItem.SetField("Custom.CapabilitiesRemainingWork", remainingTotals["CapabilitiesRemainingWork"]);
-                epicWorkItem.SetField("Custom.UnProductiveRemainingWork", remainingTotals["UnProductiveRemainingWork"]);
+                // Update Epic with aggregated remaining values (using simplified Custom.* field names)     
+                epicWorkItem.SetField("Microsoft.VSTS.Scheduling.RemainingWork", Math.Round(remainingTotals["TotalRemainingWork"], 2));
+                epicWorkItem.SetField("Custom.DevelopmentRemainingWork", Math.Round(remainingTotals["DevelopmentRemainingWork"], 2));
+                epicWorkItem.SetField("Custom.QARemainingWork", Math.Round(remainingTotals["QARemainingWork"], 2));
+                epicWorkItem.SetField("Custom.PORemainingWork", Math.Round(remainingTotals["PORemainingWork"], 2));
+                epicWorkItem.SetField("Custom.AdminRemainingWork", Math.Round(remainingTotals["AdminRemainingWork"], 2));
+                epicWorkItem.SetField("Custom.OthersRemainingWork", Math.Round(remainingTotals["OthersRemainingWork"], 2));
+                epicWorkItem.SetField("Custom.InfraRemainingWork", Math.Round(remainingTotals["InfraRemainingWork"], 2));
+                epicWorkItem.SetField("Custom.CapabilitiesRemainingWork", Math.Round(remainingTotals["CapabilitiesRemainingWork"], 2));
+                epicWorkItem.SetField("Custom.UnProductiveRemainingWork", Math.Round(remainingTotals["UnProductiveRemainingWork"], 2));
 
-                // Update Epic with aggregated completed work values (using simplified Custom.* field names)
-                epicWorkItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", completedTotals["TotalCompletedWork"]);
-                epicWorkItem.SetField("Custom.DevelopmentCompletedWork", completedTotals["DevelopmentCompletedWork"]);
-                epicWorkItem.SetField("Custom.QACompletedWork", completedTotals["QACompletedWork"]);
-                epicWorkItem.SetField("Custom.POCompletedWork", completedTotals["POCompletedWork"]);
-                epicWorkItem.SetField("Custom.AdminCompletedWork", completedTotals["AdminCompletedWork"]);
-                epicWorkItem.SetField("Custom.OthersCompletedWork", completedTotals["OthersCompletedWork"]);
-                epicWorkItem.SetField("Custom.InfraCompletedWork", completedTotals["InfraCompletedWork"]);
-                epicWorkItem.SetField("Custom.CapabilitiesCompletedWork", completedTotals["CapabilitiesCompletedWork"]);
-                epicWorkItem.SetField("Custom.UnProductiveCompletedWork", completedTotals["UnProductiveCompletedWork"]);
+                // Update Epic with aggregated completed work values (using simplified Custom.* field names)    
+                epicWorkItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", Math.Round(completedTotals["TotalCompletedWork"], 2));
+                epicWorkItem.SetField("Custom.DevelopmentCompletedWork", Math.Round(completedTotals["DevelopmentCompletedWork"], 2));
+                epicWorkItem.SetField("Custom.QACompletedWork", Math.Round(completedTotals["QACompletedWork"], 2));
+                epicWorkItem.SetField("Custom.POCompletedWork", Math.Round(completedTotals["POCompletedWork"], 2));
+                epicWorkItem.SetField("Custom.AdminCompletedWork", Math.Round(completedTotals["AdminCompletedWork"], 2));
+                epicWorkItem.SetField("Custom.OthersCompletedWork", Math.Round(completedTotals["OthersCompletedWork"], 2));
+                epicWorkItem.SetField("Custom.InfraCompletedWork", Math.Round(completedTotals["InfraCompletedWork"], 2));
+                epicWorkItem.SetField("Custom.CapabilitiesCompletedWork", Math.Round(completedTotals["CapabilitiesCompletedWork"], 2));
+                epicWorkItem.SetField("Custom.UnProductiveCompletedWork", Math.Round(completedTotals["UnProductiveCompletedWork"], 2));
 
                 // Update aggregation timestamp
                 //epicWorkItem.SetField("Custom.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
