@@ -319,6 +319,14 @@ namespace Lamdat.Aggregation.Scripts
                     var featureWorkItem = await client.GetWorkItem(feature.Id);
                     if (featureWorkItem == null) continue;
 
+                    // Skip features that are in "Removed" state
+                    var featureState = featureWorkItem.GetField<string>("System.State");
+                    if (string.Equals(featureState, "Removed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Logger.Debug($"Skipping Feature {feature.Id} in 'Removed' state");
+                        continue;
+                    }
+
                     // Aggregate estimation fields from Feature (using simplified Custom.* field names)
                     estimationTotals["TotalEffortEstimation"] += featureWorkItem.GetField<double?>("Microsoft.VSTS.Scheduling.Effort") ?? 0;
                     estimationTotals["DevelopmentEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.DevelopmentEffortEstimation") ?? 0;
@@ -510,15 +518,15 @@ namespace Lamdat.Aggregation.Scripts
                             var epicCompletedWork = await CalculateEpicCompletedWorkFromAllDescendants(epicWorkItem, disciplineMappings, client);
 
                             // Update Epic completed work fields only (estimation/remaining handled elsewhere)
-                            epicWorkItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", epicCompletedWork["TotalCompletedWork"]);
-                            epicWorkItem.SetField("Custom.DevelopmentCompletedWork", epicCompletedWork["DevelopmentCompletedWork"]);
-                            epicWorkItem.SetField("Custom.QACompletedWork", epicCompletedWork["QACompletedWork"]);
-                            epicWorkItem.SetField("Custom.POCompletedWork", epicCompletedWork["POCompletedWork"]);
-                            epicWorkItem.SetField("Custom.AdminCompletedWork", epicCompletedWork["AdminCompletedWork"]);
-                            epicWorkItem.SetField("Custom.OthersCompletedWork", epicCompletedWork["OthersCompletedWork"]);
-                            epicWorkItem.SetField("Custom.InfraCompletedWork", epicCompletedWork["InfraCompletedWork"]);
-                            epicWorkItem.SetField("Custom.CapabilitiesCompletedWork", epicCompletedWork["CapabilitiesCompletedWork"]);
-                            epicWorkItem.SetField("Custom.UnProductiveCompletedWork", epicCompletedWork["UnProductiveCompletedWork"]);
+                            epicWorkItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", Math.Round(epicCompletedWork["TotalCompletedWork"], 2));
+                            epicWorkItem.SetField("Custom.DevelopmentCompletedWork", Math.Round(epicCompletedWork["DevelopmentCompletedWork"], 2));
+                            epicWorkItem.SetField("Custom.QACompletedWork", Math.Round(epicCompletedWork["QACompletedWork"], 2));
+                            epicWorkItem.SetField("Custom.POCompletedWork", Math.Round(epicCompletedWork["POCompletedWork"], 2));
+                            epicWorkItem.SetField("Custom.AdminCompletedWork", Math.Round(epicCompletedWork["AdminCompletedWork"], 2));
+                            epicWorkItem.SetField("Custom.OthersCompletedWork", Math.Round(epicCompletedWork["OthersCompletedWork"], 2));
+                            epicWorkItem.SetField("Custom.InfraCompletedWork", Math.Round(epicCompletedWork["InfraCompletedWork"], 2));
+                            epicWorkItem.SetField("Custom.CapabilitiesCompletedWork", Math.Round(epicCompletedWork["CapabilitiesCompletedWork"], 2));
+                            epicWorkItem.SetField("Custom.UnProductiveCompletedWork", Math.Round(epicCompletedWork["UnProductiveCompletedWork"], 2));
 
 
                             //epicWorkItem.SetField("Custom.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
@@ -571,6 +579,14 @@ namespace Lamdat.Aggregation.Scripts
                 {
                     if (pbi.Id == featureItem.Id) continue;
                     // Aggregate completed work fields from Feature (using simplified Custom.* field names)
+
+                    // Skip features that are in "Removed" state
+                    var childState = pbi.GetField<string>("System.State");
+                    if (string.Equals(childState, "Removed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Logger.Debug($"Skipping feature child {pbi.Id} is in 'Removed' state");
+                        continue;
+                    }
 
                     aggregatedData["TotalCompletedWork"] += pbi.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
                     aggregatedData["DevelopmentCompletedWork"] += pbi.GetField<double?>("Custom.DevelopmentCompletedWork") ?? 0;
@@ -629,6 +645,13 @@ namespace Lamdat.Aggregation.Scripts
                     // Additional safety check to ensure we don't include the epic itself
                     if (feature.Id == epicItem.Id) continue;
 
+                    // Skip features that are in "Removed" state
+                    var featureState = feature.GetField<string>("System.State");
+                    if (string.Equals(featureState, "Removed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Logger.Debug($"Skipping feature child {feature.Id} is in 'Removed' state");
+                        continue;
+                    }
 
                     aggregatedData["TotalCompletedWork"] += feature.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
                     aggregatedData["DevelopmentCompletedWork"] += feature.GetField<double?>("Custom.DevelopmentCompletedWork") ?? 0;
@@ -708,6 +731,15 @@ namespace Lamdat.Aggregation.Scripts
                 {
                     // Additional safety check to ensure we don't include the parent itself
                     if (task.Id == parentItem.Id) continue;
+
+                    // Skip task are in "Removed" state
+                    var taskState = task.GetField<string>("System.State");
+                    if (string.Equals(taskState, "Removed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Logger.Debug($"Skipping task child {task.Id} is in 'Removed' state");
+                        continue;
+                    }
+
 
                     var completedWork = task.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
                     var activity = task.GetField<string>("Microsoft.VSTS.Common.Activity") ?? "";
