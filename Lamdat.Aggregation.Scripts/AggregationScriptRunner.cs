@@ -73,15 +73,35 @@ namespace Lamdat.Aggregation.Scripts
 
                 // Step 1: Find all tasks that have changed since last run (for bottom-up aggregation)
                 // Fix: Use proper WIQL date format (date only, no time) and > 0 for numeric field instead of IS NOT EMPTY
-                var sinceLastRun = LastRun.ToString("yyyy-MM-dd");
-                var changedTasksQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [Microsoft.VSTS.Scheduling.CompletedWork], [Microsoft.VSTS.Common.Activity]
-                              FROM WorkItems 
-                              WHERE [System.WorkItemType] = 'Task' 
-                              AND [System.TeamProject] = 'PCLabs'
-                              AND [System.ChangedDate] >= '{sinceLastRun}' 
-                              ORDER BY [System.ChangedDate]";
+                // Option 1: Ensure LastRun is treated as UTC for comparison
+                var sinceLastRunUtc = LastRun.Kind == DateTimeKind.Utc 
+                    ? LastRun 
+                    : LastRun.ToUniversalTime();
+                var sinceLastRun = sinceLastRunUtc.ToString("yyyy-MM-dd");
 
-                var changedTasks = await Client.QueryWorkItemsByWiql(changedTasksQuery);
+                // Option 2: Add ChangedDate to query results and filter in memory for precise UTC comparison
+                var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
+                var changedTasksQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
+                                          [Microsoft.VSTS.Scheduling.CompletedWork], [Microsoft.VSTS.Common.Activity], 
+                                          [System.ChangedDate]
+                                          FROM WorkItems 
+                                          WHERE [System.WorkItemType] = 'Task' 
+                                          AND [System.TeamProject] = 'PCLabs'
+                                          AND [System.ChangedDate] >= '{sinceLastRunDate}' 
+                                          
+                                          ORDER BY [System.ChangedDate]";
+                
+
+                var allChangedTasks = await Client.QueryWorkItemsByWiql(changedTasksQuery);
+
+                // Filter with precise UTC comparison
+                var changedTasks = allChangedTasks.Where(task => 
+                {
+                    var changedDate = task.GetField<DateTime?>("System.ChangedDate");
+                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                }).ToList();
+
+
                 Logger.Information($"Found {changedTasks.Count} changed tasks with completed work since last run");
 
                 // Step 2: Find all features that have changed since last run (for top-down aggregation)
@@ -89,10 +109,18 @@ namespace Lamdat.Aggregation.Scripts
                                  FROM WorkItems 
                                  WHERE [System.WorkItemType] = 'Feature' 
                                  AND [System.TeamProject] = 'PCLabs'
-                                 AND [System.ChangedDate] >= '{sinceLastRun}' 
+                                 AND [System.ChangedDate] >= '{sinceLastRun}'                                  
                                  ORDER BY [System.ChangedDate]";
 
-                var changedFeatures = await Client.QueryWorkItemsByWiql(changedFeaturesQuery);
+                var changedFeaturesRet = await Client.QueryWorkItemsByWiql(changedFeaturesQuery);
+
+                var changedFeatures = changedFeaturesRet.Where(feature =>
+                {
+                    var changedDate = feature.GetField<DateTime?>("System.ChangedDate");
+                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                }).ToList();
+
+
                 Logger.Information($"Found {changedFeatures.Count} changed features since last run");
 
                 if (changedTasks.Count == 0 && changedFeatures.Count == 0)
@@ -177,7 +205,7 @@ namespace Lamdat.Aggregation.Scripts
                               FROM WorkItemLinks
                               WHERE [Source].[System.Id] IN ({featureIds})
                               AND [Source].[System.TeamProject] = 'PCLabs'
-                              AND [Target].[System.TeamProject] = 'PCLabs'
+                              AND [Target].[System.TeamProject] = 'PCLabs'                          
                               AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
                               AND [Target].[System.WorkItemType] = 'Epic'";
 
@@ -235,7 +263,7 @@ namespace Lamdat.Aggregation.Scripts
                                AND [Source].[System.TeamProject] = 'PCLabs'
                                AND [Target].[System.TeamProject] = 'PCLabs'
                                AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                               AND [Target].[System.WorkItemType] = 'Feature'
+                               AND [Target].[System.WorkItemType] = 'Feature'                           
                                AND [Target].[System.Id] <> {epicId}";
 
                 var childFeatures = await client.QueryWorkItemsByWiql(childFeaturesQuery);
@@ -533,7 +561,7 @@ namespace Lamdat.Aggregation.Scripts
                            WHERE [Source].[System.Id] = {featureItem.Id}
                            AND [Source].[System.TeamProject] = 'PCLabs'
                            AND [Target].[System.TeamProject] = 'PCLabs'
-                           AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
+                           AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'                         
                            AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch')
                            AND [Target].[System.Id] <> {featureItem.Id}";
 
@@ -590,7 +618,7 @@ namespace Lamdat.Aggregation.Scripts
                                AND [Source].[System.TeamProject] = 'PCLabs'
                                AND [Target].[System.TeamProject] = 'PCLabs'
                                AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                               AND [Target].[System.WorkItemType] = 'Feature'
+                               AND [Target].[System.WorkItemType] = 'Feature'                              
                                AND [Target].[System.Id] <> {epicItem.Id}";
 
                 var childFeatures = await client.QueryWorkItemsByWiql(childFeaturesQuery);
@@ -671,7 +699,7 @@ namespace Lamdat.Aggregation.Scripts
                             AND [Source].[System.TeamProject] = 'PCLabs'
                             AND [Target].[System.TeamProject] = 'PCLabs'
                             AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                            AND [Target].[System.WorkItemType] = 'Task'
+                            AND [Target].[System.WorkItemType] = 'Task'                         
                             AND [Target].[System.Id] <> {parentItem.Id}";
 
                 var childTasks = await client.QueryWorkItemsByWiql(childTasksQuery);
@@ -758,7 +786,7 @@ namespace Lamdat.Aggregation.Scripts
                                WHERE [Source].[System.Id] IN ({taskIds})
                                AND [Source].[System.TeamProject] = 'PCLabs'
                                AND [Target].[System.TeamProject] = 'PCLabs'
-                               AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
+                               AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'                            
                                AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic')";
 
                     var batchAncestors = await client.QueryWorkItemsByWiql(batchAncestorsQuery);
@@ -821,6 +849,7 @@ namespace Lamdat.Aggregation.Scripts
                                         AND [Source].[System.TeamProject] = 'PCLabs'
                                         AND [Target].[System.TeamProject] = 'PCLabs'
                                         AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
+                                      
                                         AND [Target].[System.WorkItemType] = 'Feature'";
 
                         var featureParents = await client.QueryWorkItemsByWiql(featureParentsQuery);
@@ -855,7 +884,7 @@ namespace Lamdat.Aggregation.Scripts
                                         WHERE [Source].[System.Id] IN ({featureIds})
                                         AND [Source].[System.TeamProject] = 'PCLabs'
                                         AND [Target].[System.TeamProject] = 'PCLabs'
-                                        AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
+                                        AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'                                      
                                         AND [Target].[System.WorkItemType] = 'Epic'";
 
                         var epicParents = await client.QueryWorkItemsByWiql(epicParentsQuery);
@@ -880,6 +909,8 @@ namespace Lamdat.Aggregation.Scripts
 
     }
 }
+
+
 
 
 
