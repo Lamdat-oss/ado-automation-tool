@@ -558,6 +558,8 @@ namespace Lamdat.Aggregation.Scripts
             // Calculate Feature completed work from all descendant tasks
             async Task<Dictionary<string, double>> CalculateFeatureCompletedWorkFromAllDescendants(WorkItem featureItem, Dictionary<string, string> disciplineMappings, IAzureDevOpsClient client)
             {
+                const int HOURS_PER_DAY = 8;
+                
                 var aggregatedData = new Dictionary<string, double>
                 {
                     ["TotalCompletedWork"] = 0,
@@ -579,7 +581,7 @@ namespace Lamdat.Aggregation.Scripts
                            AND [Source].[System.TeamProject] = 'PCLabs'
                            AND [Target].[System.TeamProject] = 'PCLabs'
                            AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'                         
-                           AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch')
+                           AND [Target].[System.WorkItemType] IN ('Task', 'Product Backlog Item', 'Bug', 'Glitch')
                            AND [Target].[System.Id] <> {featureItem.Id}";
 
                 var childPBIs = await client.QueryWorkItemsByWiql(childPBIsQuery);
@@ -597,15 +599,65 @@ namespace Lamdat.Aggregation.Scripts
                         continue;
                     }
 
-                    aggregatedData["TotalCompletedWork"] += pbi.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
-                    aggregatedData["DevelopmentCompletedWork"] += pbi.GetField<double?>("Custom.DevelopmentCompletedWork") ?? 0;
-                    aggregatedData["QACompletedWork"] += pbi.GetField<double?>("Custom.QACompletedWork") ?? 0;
-                    aggregatedData["POCompletedWork"] += pbi.GetField<double?>("Custom.POCompletedWork") ?? 0;
-                    aggregatedData["AdminCompletedWork"] += pbi.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
-                    aggregatedData["OthersCompletedWork"] += pbi.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
-                    aggregatedData["InfraCompletedWork"] += pbi.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
-                    aggregatedData["CapabilitiesCompletedWork"] += pbi.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
-                    aggregatedData["UnProductiveCompletedWork"] += pbi.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
+                    // Handle Task items differently
+                    if (pbi.WorkItemType == "Task")
+                    {
+                        var taskCompletedWork = pbi.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
+                        var taskCompletedDays = Math.Round(taskCompletedWork / HOURS_PER_DAY, 2);
+                        
+                        aggregatedData["TotalCompletedWork"] += taskCompletedDays;
+                        
+                        // Map task activity to discipline for task completed work
+                        var activity = pbi.GetField<string>("Microsoft.VSTS.Common.Activity") ?? "";
+                        if (disciplineMappings.TryGetValue(activity, out var discipline))
+                        {
+                            switch (discipline)
+                            {
+                                case "Development":
+                                    aggregatedData["DevelopmentCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "QA":
+                                    aggregatedData["QACompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "PO":
+                                    aggregatedData["POCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "Admin":
+                                    aggregatedData["AdminCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "Others":
+                                    aggregatedData["OthersCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "Infra":
+                                    aggregatedData["InfraCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "Capabilities":
+                                    aggregatedData["CapabilitiesCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "UnProductive":
+                                    aggregatedData["UnProductiveCompletedWork"] += taskCompletedDays;
+                                    break;
+                            }
+                        }
+                        else
+                        {
+                            // Unknown activity goes to Others
+                            aggregatedData["OthersCompletedWork"] += taskCompletedDays;
+                        }
+                    }
+                    else
+                    {
+                        // Handle PBI/Bug/Glitch items (aggregate their already calculated completed work fields)
+                        aggregatedData["TotalCompletedWork"] += pbi.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
+                        aggregatedData["DevelopmentCompletedWork"] += pbi.GetField<double?>("Custom.DevelopmentCompletedWork") ?? 0;
+                        aggregatedData["QACompletedWork"] += pbi.GetField<double?>("Custom.QACompletedWork") ?? 0;
+                        aggregatedData["POCompletedWork"] += pbi.GetField<double?>("Custom.POCompletedWork") ?? 0;
+                        aggregatedData["AdminCompletedWork"] += pbi.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
+                        aggregatedData["OthersCompletedWork"] += pbi.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
+                        aggregatedData["InfraCompletedWork"] += pbi.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
+                        aggregatedData["CapabilitiesCompletedWork"] += pbi.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
+                        aggregatedData["UnProductiveCompletedWork"] += pbi.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
+                    }
                 }
 
                 // Round all values to 2 decimal places

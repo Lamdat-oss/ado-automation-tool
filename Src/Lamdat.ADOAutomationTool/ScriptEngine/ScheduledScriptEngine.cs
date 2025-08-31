@@ -160,7 +160,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
         {
             if (string.IsNullOrWhiteSpace(_settings.ScheduledScriptDefaultLastRun))
             {
-                return DateTime.Now;
+                return DateTime.Now.AddMinutes(-10);
             }
 
             var defaultLastRunConfig = _settings.ScheduledScriptDefaultLastRun.Trim();

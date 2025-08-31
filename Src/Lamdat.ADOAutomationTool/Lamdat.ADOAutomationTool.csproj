@@ -21,6 +21,16 @@
     <Content Remove="Scripts\2.SetParentStartTargetDateByChild.rule" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Remove="scheduled-scripts\08-hierarchical-aggregation.rule" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="scheduled-scripts\08-hierarchical-aggregation.rule">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 
   <ItemGroup>
     <PackageReference Include="CS-Script" Version="4.8.16" />

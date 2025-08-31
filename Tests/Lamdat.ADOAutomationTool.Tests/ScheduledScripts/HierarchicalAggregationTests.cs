@@ -53,7 +53,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             result.ShouldHaveLogMessageContaining("Starting hierarchical work item aggregation");
             result.ShouldHaveLogMessageContaining("Processing changes since:");
             result.ShouldHaveLogMessageContaining("Aggregation running as:");
-            result.ShouldHaveLogMessageContaining("No tasks or features with changes found - no aggregation needed");
+            result.ShouldHaveLogMessageContaining("No tasks, features, or removed work items with changes found - no aggregation needed");
             
             // Verify it returns the expected success message when no work to do
             result.ScheduledScriptResult.Should().NotBeNull();
@@ -106,7 +106,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             if (result.HasLogMessageContaining("Found 0 changed tasks"))
             {
                 // No tasks were processed, which is okay for this test scenario
-                result.ShouldHaveLogMessageContaining("No tasks or features with changes found - no aggregation needed");
+                result.ShouldHaveLogMessageContaining("No tasks, features, or removed work items with changes found - no aggregation needed");
             }
             else
             {
@@ -175,7 +175,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             if (result.HasLogMessageContaining("Found 0 changed tasks"))
             {
                 // No tasks were processed due to date filtering
-                result.ShouldHaveLogMessageContaining("No tasks or features with changes found - no aggregation needed");
+                result.ShouldHaveLogMessageContaining("No tasks, features, or removed work items with changes found - no aggregation needed");
             }
             else
             {
@@ -238,7 +238,7 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
             if (result.HasLogMessageContaining("Found 0 changed features"))
             {
                 // No features were processed due to date filtering
-                result.ShouldHaveLogMessageContaining("No tasks or features with changes found - no aggregation needed");
+                result.ShouldHaveLogMessageContaining("No tasks, features, or removed work items with changes found - no aggregation needed");
             }
             else
             {
@@ -318,11 +318,12 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                     // Verify Infrastructure specific aggregation fields
                     updatedPBI.Fields.Should().ContainKey("Custom.InfraCompletedWork");
                     
-                    // Verify the total Infrastructure work is correctly aggregated (6.0 + 4.0 = 10.0)
+                    // Verify the total Infrastructure work is correctly aggregated 
+                    // Task hours converted to PBI days: (6.0 + 4.0) hours / 8 = 1.25 days
                     var infraWork = updatedPBI.GetField<double?>("Custom.InfraCompletedWork");
                     if (infraWork.HasValue)
                     {
-                        infraWork.Value.Should().Be(10.0, "DevOps (6.0) + Release Infra (4.0) should equal 10.0");
+                        infraWork.Value.Should().Be(1.25, "DevOps (6.0) + Release Infra (4.0) = 10.0 hours / 8 = 1.25 days");
                     }
                 }
             }
@@ -385,11 +386,12 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                     // Verify UnProductive specific aggregation fields
                     updatedPBI.Fields.Should().ContainKey("Custom.UnProductiveCompletedWork");
                     
-                    // Verify the total UnProductive work is correctly aggregated (3.0 + 2.0 = 5.0)
+                    // Verify the total UnProductive work is correctly aggregated 
+                    // Task hours converted to PBI days: (3.0 + 2.0) hours / 8 = 0.63 days (rounded)
                     var unProductiveWork = updatedPBI.GetField<double?>("Custom.UnProductiveCompletedWork");
                     if (unProductiveWork.HasValue)
                     {
-                        unProductiveWork.Value.Should().Be(5.0, "Investigation (3.0) + Management (2.0) should equal 5.0");
+                        unProductiveWork.Value.Should().Be(0.63, "Investigation (3.0) + Management (2.0) = 5.0 hours / 8 = 0.63 days");
                     }
                 }
             }
@@ -452,11 +454,12 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                     // Verify Capabilities specific aggregation fields
                     updatedPBI.Fields.Should().ContainKey("Custom.CapabilitiesCompletedWork");
                     
-                    // Verify the total Capabilities work is correctly aggregated (8.0 + 5.0 = 13.0)
+                    // Verify the total Capabilities work is correctly aggregated 
+                    // Task hours converted to PBI days: (8.0 + 5.0) hours / 8 = 1.625 days, rounded to 1.62
                     var capabilitiesWork = updatedPBI.GetField<double?>("Custom.CapabilitiesCompletedWork");
                     if (capabilitiesWork.HasValue)
                     {
-                        capabilitiesWork.Value.Should().Be(13.0, "Support COE (8.0) + Training (5.0) should equal 13.0");
+                        capabilitiesWork.Value.Should().Be(1.62, "Support COE (8.0) + Training (5.0) = 13.0 hours / 8 = 1.625 days, rounded to 1.62");
                     }
                 }
             }
@@ -660,11 +663,12 @@ namespace Lamdat.ADOAutomationTool.Tests.ScheduledScripts
                     updatedPBI.Fields.Should().ContainKey("Custom.CapabilitiesCompletedWork");
                     updatedPBI.Fields.Should().ContainKey("Custom.UnProductiveCompletedWork");
                     
-                    // Verify total completed work is sum of all disciplines (45.0 total)
+                    // Verify total completed work is sum of all disciplines converted to days
+                    // Total task hours: 10+8+6+4+3+7+5+2 = 45 hours / 8 = 5.63 days
                     var totalCompleted = updatedPBI.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork");
                     if (totalCompleted.HasValue)
                     {
-                        totalCompleted.Value.Should().Be(45.0, "Sum of all discipline hours should be 45.0");
+                        totalCompleted.Value.Should().Be(5.63, "Sum of all discipline hours (45.0) / 8 should be 5.63 days");
                     }
                 }
                 
