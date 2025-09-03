@@ -132,19 +132,40 @@ namespace Lamdat.ADOAutomationTool.Service
             try
             {
                 string scheduledScriptsDirectory = "scheduled-scripts";
+                
+                // Add better path resolution and logging for containerized environments
+                var currentDirectory = Directory.GetCurrentDirectory();
+                var fullScriptsPath = Path.Combine(currentDirectory, scheduledScriptsDirectory);
+                
+                _logger.Information($"Looking for scheduled scripts in: {fullScriptsPath}");
+                _logger.Information($"Current working directory: {currentDirectory}");
+                
                 if (!Directory.Exists(scheduledScriptsDirectory))
                 {
-                    _logger.Debug("Scheduled scripts directory not found, creating it.");
+                    _logger.Warning($"Scheduled scripts directory '{fullScriptsPath}' not found, creating it.");
                     Directory.CreateDirectory(scheduledScriptsDirectory);
+                    
+                    // Log what's actually in the current directory to help debug
+                    var currentDirContents = Directory.GetFileSystemEntries(currentDirectory);
+                    _logger.Information($"Current directory contains: {string.Join(", ", currentDirContents.Select(Path.GetFileName))}");
                     return;
                 }
 
                 string[] scriptFiles = Directory.GetFiles(scheduledScriptsDirectory, "*.rule");
+                _logger.Information($"Found {scriptFiles.Length} script files in '{fullScriptsPath}'");
+                
                 if (scriptFiles.Length == 0)
                 {
-                    _logger.Debug("No scheduled scripts found to execute.");
+                    _logger.Warning("No scheduled scripts (.rule files) found to execute.");
+                    
+                    // Log what files ARE in the directory to help debug
+                    var allFiles = Directory.GetFiles(scheduledScriptsDirectory);
+                    _logger.Information($"Directory contains {allFiles.Length} files: {string.Join(", ", allFiles.Select(Path.GetFileName))}");
                     return;
                 }
+
+                // Log the script files found
+                _logger.Information($"Script files found: {string.Join(", ", scriptFiles.Select(Path.GetFileName))}");
 
                 // Create a context for scheduled execution with default interval information
                 var context = CreateScheduledContext();
@@ -156,6 +177,10 @@ namespace Lamdat.ADOAutomationTool.Service
                 if (!string.IsNullOrEmpty(result))
                 {
                     _logger.Warning($"Scheduled script execution returned errors: {result}");
+                }
+                else
+                {
+                    _logger.Information("Scheduled script execution completed successfully.");
                 }
             }
             catch (Exception ex)
