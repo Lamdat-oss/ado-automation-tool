@@ -8,7 +8,6 @@ namespace Lamdat.ADOAutomationTool.Service
     {
         Task Start();
         void Stop();
-        bool IsRunning { get; }
         
         /// <summary>
         /// Gets information about all scheduled scripts and their next execution times
