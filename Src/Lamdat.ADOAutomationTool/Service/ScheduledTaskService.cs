@@ -24,11 +24,10 @@ namespace Lamdat.ADOAutomationTool.Service
         private bool _isExecuting;
         private bool _disposed;
 
-        public bool IsRunning => _timer?.Enabled ?? false;
 
         public ScheduledTaskService(
-            Serilog.ILogger logger, 
-            ScheduledScriptEngine scheduledScriptEngine, 
+            Serilog.ILogger logger,
+            ScheduledScriptEngine scheduledScriptEngine,
             Settings settings,
             IAzureDevOpsClient azureDevOpsClient)
         {
@@ -41,7 +40,7 @@ namespace Lamdat.ADOAutomationTool.Service
             // The scripts themselves determine when they should run based on their individual intervals
             var checkIntervalMinutes = Math.Min(_settings.ScheduledTaskIntervalMinutes, 1.0);
             var intervalInMilliseconds = checkIntervalMinutes * 60 * 1000;
-            
+
             _timer = new System.Timers.Timer(intervalInMilliseconds);
             _timer.Elapsed += OnTimedEvent;
             _timer.AutoReset = true;
@@ -56,33 +55,36 @@ namespace Lamdat.ADOAutomationTool.Service
             {
                 _logger.Information($"Scheduled Task Service starting. Will check for scripts to execute every {_timer.Interval / 60000:F1} minutes.");
                 _logger.Information("Scripts can now define their own execution intervals. The service will execute scripts when their individual intervals have elapsed.");
-                
-                // Execute scheduled tasks immediately on startup
-                _logger.Information("Executing scheduled tasks immediately on startup...");
-                
-                // Use the same execution guard as the timer to prevent race conditions
-                if (!_isExecuting)
+
+                // Execute scheduled tasks immediately on startup in background
+                _logger.Information("Executing scheduled tasks immediately on startup (in background)...");
+
+                // Use Task.Run to execute in background without blocking startup
+                _ = Task.Run(async () =>
                 {
-                    _isExecuting = true;
-                    try
+                    if (!_isExecuting)
                     {
-                        await ExecuteScheduledTasks();
-                        _logger.Information("Initial scheduled tasks execution completed.");
+                        _isExecuting = true;
+                        try
+                        {
+                            await ExecuteScheduledTasks();
+                            _logger.Information("Initial scheduled tasks execution completed.");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Error(ex, "Error occurred during initial scheduled task execution on startup");
+                        }
+                        finally
+                        {
+                            _isExecuting = false;
+                        }
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        _logger.Error(ex, "Error occurred during initial scheduled task execution on startup");
+                        _logger.Warning("Scheduled tasks execution already in progress during startup, skipping initial execution.");
                     }
-                    finally
-                    {
-                        _isExecuting = false;
-                    }
-                }
-                else
-                {
-                    _logger.Warning("Scheduled tasks execution already in progress during startup, skipping initial execution.");
-                }
-                
+                });
+
                 // Start the timer for regular interval execution
                 _timer.Start();
                 _logger.Information("Scheduled Task Service started and timer enabled for regular intervals.");
@@ -132,19 +134,19 @@ namespace Lamdat.ADOAutomationTool.Service
             try
             {
                 string scheduledScriptsDirectory = "scheduled-scripts";
-                
+
                 // Add better path resolution and logging for containerized environments
                 var currentDirectory = Directory.GetCurrentDirectory();
                 var fullScriptsPath = Path.Combine(currentDirectory, scheduledScriptsDirectory);
-                
+
                 _logger.Information($"Looking for scheduled scripts in: {fullScriptsPath}");
                 _logger.Information($"Current working directory: {currentDirectory}");
-                
+
                 if (!Directory.Exists(scheduledScriptsDirectory))
                 {
                     _logger.Warning($"Scheduled scripts directory '{fullScriptsPath}' not found, creating it.");
                     Directory.CreateDirectory(scheduledScriptsDirectory);
-                    
+
                     // Log what's actually in the current directory to help debug
                     var currentDirContents = Directory.GetFileSystemEntries(currentDirectory);
                     _logger.Information($"Current directory contains: {string.Join(", ", currentDirContents.Select(Path.GetFileName))}");
@@ -153,11 +155,11 @@ namespace Lamdat.ADOAutomationTool.Service
 
                 string[] scriptFiles = Directory.GetFiles(scheduledScriptsDirectory, "*.rule");
                 _logger.Information($"Found {scriptFiles.Length} script files in '{fullScriptsPath}'");
-                
+
                 if (scriptFiles.Length == 0)
                 {
                     _logger.Warning("No scheduled scripts (.rule files) found to execute.");
-                    
+
                     // Log what files ARE in the directory to help debug
                     var allFiles = Directory.GetFiles(scheduledScriptsDirectory);
                     _logger.Information($"Directory contains {allFiles.Length} files: {string.Join(", ", allFiles.Select(Path.GetFileName))}");
@@ -169,11 +171,11 @@ namespace Lamdat.ADOAutomationTool.Service
 
                 // Create a context for scheduled execution with default interval information
                 var context = CreateScheduledContext();
-                
+
                 // Execute the scripts using the specialized scheduled script engine
                 // The engine will determine which scripts need to run based on their intervals
                 var result = await _scheduledScriptEngine.ExecuteScheduledScripts(context);
-                
+
                 if (!string.IsNullOrEmpty(result))
                 {
                     _logger.Warning($"Scheduled script execution returned errors: {result}");
@@ -201,10 +203,10 @@ namespace Lamdat.ADOAutomationTool.Service
                 EventType = "ScheduledTask",
                 Project = null, // Can be set by scripts if needed
                 RelationChanges = new Relations(),
-                Self = new WorkItem 
-                { 
-                    Id = 0, 
-                    Title = "Scheduled Task Execution", 
+                Self = new WorkItem
+                {
+                    Id = 0,
+                    Title = "Scheduled Task Execution",
                     Fields = new Dictionary<string, object?>
                     {
                         ["System.WorkItemType"] = "ScheduledTask"
@@ -214,7 +216,7 @@ namespace Lamdat.ADOAutomationTool.Service
                 WebHookResource = new WebHookResourceUpdate(),
                 ScriptRunId = Guid.NewGuid().ToString("N")[..8] // Short run ID for scheduled tasks
             };
-            
+
             return context;
         }
 
@@ -229,7 +231,7 @@ namespace Lamdat.ADOAutomationTool.Service
         public void Dispose()
         {
             if (_disposed) return;
-            
+
             Stop();
             _timer?.Dispose();
             _disposed = true;
