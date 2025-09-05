@@ -1173,25 +1173,74 @@ namespace Lamdat.Aggregation.Scripts
 
                 var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
 
-                // Query for all work items in "Removed" state that have changed since last run
-                var removedWorkItemsQuery = $@"SELECT [System.Id], [System.ChangedDate]
-                                             FROM WorkItems 
-                                             WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
-                                             AND [System.TeamProject] = 'PCLabs'
-                                             AND [System.State] = 'Removed'
-                                             AND [System.ChangedDate] >= '{sinceLastRunDate}'";
+                // Use paging to handle large result sets of removed work items (for count check)
+                var removedWorkItemsCount = 0;
+                const int checkPageSize = 200; // Azure DevOps default limit
+                int? lastRemovedWorkItemId = null;
+                bool hasMoreRemovedWorkItems = true;
 
-                var allRemovedWorkItems = await client.QueryWorkItemsByWiql(removedWorkItemsQuery);
+                Logger.Debug("Checking removed work items with paging for early exit decision");
 
-                // Filter with precise UTC comparison
-                var removedWorkItems = allRemovedWorkItems.Where(item =>
+                while (hasMoreRemovedWorkItems)
                 {
-                    var changedDate = item.GetField<DateTime?>("System.ChangedDate");
-                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
-                }).ToList();
+                    string removedWorkItemsQuery;
+                    
+                    if (lastRemovedWorkItemId == null)
+                    {
+                        // First page - no ID filter needed
+                        removedWorkItemsQuery = $@"SELECT [System.Id], [System.ChangedDate]
+                                                 FROM WorkItems 
+                                                 WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
+                                                 AND [System.TeamProject] = 'PCLabs'
+                                                 AND [System.State] = 'Removed'
+                                                 AND [System.ChangedDate] >= '{sinceLastRunDate}'
+                                                 ORDER BY [System.Id]";
+                    }
+                    else
+                    {
+                        // Subsequent pages - filter by ID to continue from where we left off
+                        removedWorkItemsQuery = $@"SELECT [System.Id], [System.ChangedDate]
+                                                 FROM WorkItems 
+                                                 WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
+                                                 AND [System.TeamProject] = 'PCLabs'
+                                                 AND [System.State] = 'Removed'
+                                                 AND [System.ChangedDate] >= '{sinceLastRunDate}'
+                                                 AND [System.Id] > {lastRemovedWorkItemId}
+                                                 ORDER BY [System.Id]";
+                    }
 
-                Logger.Debug($"Found {removedWorkItems.Count} work items in 'Removed' state for early exit check");
-                return removedWorkItems.Count;
+                    var pageResults = await client.QueryWorkItemsByWiql(removedWorkItemsQuery, checkPageSize);
+                    
+                    if (pageResults.Count == 0)
+                    {
+                        hasMoreRemovedWorkItems = false;
+                        Logger.Debug($"No more removed work items found for check, paging complete. Total count: {removedWorkItemsCount}");
+                    }
+                    else
+                    {
+                        // Filter with precise UTC comparison for this page
+                        var filteredPageResults = pageResults.Where(item =>
+                        {
+                            var changedDate = item.GetField<DateTime?>("System.ChangedDate");
+                            return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                        }).ToList();
+
+                        removedWorkItemsCount += filteredPageResults.Count;
+                        lastRemovedWorkItemId = pageResults.Last().Id;
+                        
+                        Logger.Debug($"Checked page with {pageResults.Count} removed work items (filtered to {filteredPageResults.Count}), last ID: {lastRemovedWorkItemId}, total count so far: {removedWorkItemsCount}");
+                        
+                        // If we got fewer results than the page size, we've reached the end
+                        if (pageResults.Count < checkPageSize)
+                        {
+                            hasMoreRemovedWorkItems = false;
+                            Logger.Debug($"Received fewer results than page size ({pageResults.Count} < {checkPageSize}), check paging complete");
+                        }
+                    }
+                }
+
+                Logger.Debug($"Found {removedWorkItemsCount} work items in 'Removed' state for early exit check");
+                return removedWorkItemsCount;
             }
 
             // Add work items in "Removed" state to affected collections for parent recalculation
@@ -1201,23 +1250,71 @@ namespace Lamdat.Aggregation.Scripts
 
                 var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
 
-                // Query for all work items in "Removed" state that have changed since last run
-                var removedWorkItemsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
-                                             FROM WorkItems 
-                                             WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
-                                             AND [System.TeamProject] = 'PCLabs'
-                                             AND [System.State] = 'Removed'
-                                             AND [System.ChangedDate] >= '{sinceLastRunDate}'
-                                             ORDER BY [System.ChangedDate]";
+                // Use paging to handle large result sets of removed work items
+                var removedWorkItems = new List<WorkItem>();
+                const int removedPageSize = 200; // Azure DevOps default limit
+                int? lastRemovedWorkItemId = null;
+                bool hasMoreRemovedWorkItems = true;
 
-                var allRemovedWorkItems = await client.QueryWorkItemsByWiql(removedWorkItemsQuery);
+                Logger.Information("Fetching removed work items with paging to handle large result sets");
 
-                // Filter with precise UTC comparison
-                var removedWorkItems = allRemovedWorkItems.Where(item =>
+                while (hasMoreRemovedWorkItems)
                 {
-                    var changedDate = item.GetField<DateTime?>("System.ChangedDate");
-                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
-                }).ToList();
+                    string removedWorkItemsQuery;
+                    
+                    if (lastRemovedWorkItemId == null)
+                    {
+                        // First page - no ID filter needed
+                        removedWorkItemsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
+                                                 FROM WorkItems 
+                                                 WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
+                                                 AND [System.TeamProject] = 'PCLabs'
+                                                 AND [System.State] = 'Removed'
+                                                 AND [System.ChangedDate] >= '{sinceLastRunDate}'
+                                                 ORDER BY [System.Id]";
+                    }
+                    else
+                    {
+                        // Subsequent pages - filter by ID to continue from where we left off
+                        removedWorkItemsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
+                                                 FROM WorkItems 
+                                                 WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
+                                                 AND [System.TeamProject] = 'PCLabs'
+                                                 AND [System.State] = 'Removed'
+                                                 AND [System.ChangedDate] >= '{sinceLastRunDate}'
+                                                 AND [System.Id] > {lastRemovedWorkItemId}
+                                                 ORDER BY [System.Id]";
+                    }
+
+                    var pageResults = await client.QueryWorkItemsByWiql(removedWorkItemsQuery, removedPageSize);
+                    
+                    if (pageResults.Count == 0)
+                    {
+                        hasMoreRemovedWorkItems = false;
+                        Logger.Debug($"No more removed work items found, paging complete. Total removed work items fetched: {removedWorkItems.Count}");
+                    }
+                    else
+                    {
+                        // Filter with precise UTC comparison for this page
+                        var filteredPageResults = pageResults.Where(item =>
+                        {
+                            var changedDate = item.GetField<DateTime?>("System.ChangedDate");
+                            return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                        }).ToList();
+
+                        removedWorkItems.AddRange(filteredPageResults);
+                        lastRemovedWorkItemId = pageResults.Last().Id;
+                        
+                        Logger.Debug($"Fetched page with {pageResults.Count} removed work items (filtered to {filteredPageResults.Count}), last ID: {lastRemovedWorkItemId}, total so far: {removedWorkItems.Count}");
+                        
+                        // If we got fewer results than the page size, we've reached the end
+                        if (pageResults.Count < removedPageSize)
+                        {
+                            hasMoreRemovedWorkItems = false;
+                            Logger.Debug($"Received fewer results than page size ({pageResults.Count} < {removedPageSize}), paging complete");
+                        }
+                    }
+                }
 
                 Logger.Information($"Found {removedWorkItems.Count} work items in 'Removed' state that have changed since last run");
 

@@ -22,10 +22,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="scheduled-scripts\08-hierarchical-aggregation-dev.rule">
+    <Content Include="scheduled-scripts\08-hierarchical-aggregation-labs.rule">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
-    <Content Include="scheduled-scripts\08-hierarchical-aggregation-labs.rule">
+    <Content Include="scheduled-scripts\08-hierarchical-aggregation-dev.rule">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
