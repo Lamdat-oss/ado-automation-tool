@@ -72,35 +72,80 @@ namespace Lamdat.Aggregation.Scripts
     };
 
                 // Step 1: Find all tasks that have changed since last run (for bottom-up aggregation)
-                // Fix: Use proper WIQL date format (date only, no time) and > 0 for numeric field instead of IS NOT EMPTY
-                // Option 1: Ensure LastRun is treated as UTC for comparison
+                // Use paging to handle large result sets
                 var sinceLastRunUtc = LastRun.Kind == DateTimeKind.Utc
                     ? LastRun
                     : LastRun.ToUniversalTime();
                 var sinceLastRun = sinceLastRunUtc.ToString("yyyy-MM-dd");
-
-                // Option 2: Add ChangedDate to query results and filter in memory for precise UTC comparison
+                
                 var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
-                var changedTasksQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
-                                          [Microsoft.VSTS.Scheduling.CompletedWork], [Microsoft.VSTS.Common.Activity], 
-                                          [System.ChangedDate]
-                                          FROM WorkItems 
-                                          WHERE [System.WorkItemType] = 'Task' 
-                                          AND [System.TeamProject] = 'PCLabs'
-                                          AND [System.ChangedDate] >= '{sinceLastRunDate}' 
-                                          
-                                          ORDER BY [System.ChangedDate]";
+                
+                var changedTasks = new List<WorkItem>();
+                const int taskPageSize = 200; // Azure DevOps default limit
+                int? lastTaskId = null;
+                bool hasMoreTasks = true;
 
+                Logger.Information("Fetching changed tasks with paging to handle large result sets");
 
-                var allChangedTasks = await Client.QueryWorkItemsByWiql(changedTasksQuery);
-
-                // Filter with precise UTC comparison
-                var changedTasks = allChangedTasks.Where(task =>
+                while (hasMoreTasks)
                 {
-                    var changedDate = task.GetField<DateTime?>("System.ChangedDate");
-                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
-                }).ToList();
+                    string changedTasksQuery;
+                    
+                    if (lastTaskId == null)
+                    {
+                        // First page - no ID filter needed
+                        changedTasksQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
+                                              [Microsoft.VSTS.Scheduling.CompletedWork], [Microsoft.VSTS.Common.Activity], 
+                                              [System.ChangedDate]
+                                              FROM WorkItems 
+                                              WHERE [System.WorkItemType] = 'Task' 
+                                              AND [System.TeamProject] = 'PCLabs'
+                                              AND [System.ChangedDate] >= '{sinceLastRunDate}'                                          
+                                              ORDER BY [System.Id]";
+                    }
+                    else
+                    {
+                        // Subsequent pages - filter by ID to continue from where we left off
+                        changedTasksQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
+                                              [Microsoft.VSTS.Scheduling.CompletedWork], [Microsoft.VSTS.Common.Activity], 
+                                              [System.ChangedDate]
+                                              FROM WorkItems 
+                                              WHERE [System.WorkItemType] = 'Task' 
+                                              AND [System.TeamProject] = 'PCLabs'
+                                              AND [System.ChangedDate] >= '{sinceLastRunDate}'
+                                              AND [System.Id] > {lastTaskId}                                          
+                                              ORDER BY [System.Id]";
+                    }
 
+                    var pageResults = await Client.QueryWorkItemsByWiql(changedTasksQuery, taskPageSize);
+                    
+                    if (pageResults.Count == 0)
+                    {
+                        hasMoreTasks = false;
+                        Logger.Debug($"No more tasks found, paging complete. Total tasks fetched: {changedTasks.Count}");
+                    }
+                    else
+                    {
+                        // Filter with precise UTC comparison for this page
+                        var filteredPageResults = pageResults.Where(task =>
+                        {
+                            var changedDate = task.GetField<DateTime?>("System.ChangedDate");
+                            return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                        }).ToList();
+
+                        changedTasks.AddRange(filteredPageResults);
+                        lastTaskId = pageResults.Last().Id;
+                        
+                        Logger.Information($"Fetched page with {pageResults.Count} tasks (filtered to {filteredPageResults.Count}), last ID: {lastTaskId}, total so far: {changedTasks.Count}");
+                        
+                        // If we got fewer results than the page size, we've reached the end
+                        if (pageResults.Count < taskPageSize)
+                        {
+                            hasMoreTasks = false;
+                            Logger.Debug($"Received fewer results than page size ({pageResults.Count} < {taskPageSize}), paging complete");
+                        }
+                    }
+                }
 
                 Logger.Information($"Found {changedTasks.Count} changed tasks with completed work since last run");
 
@@ -158,7 +203,7 @@ namespace Lamdat.Aggregation.Scripts
                         changedFeatures.AddRange(filteredPageResults);
                         lastFeatureId = pageResults.Last().Id;
                         
-                        Logger.Debug($"Fetched page with {pageResults.Count} features (filtered to {filteredPageResults.Count}), last ID: {lastFeatureId}, total so far: {changedFeatures.Count}");
+                        Logger.Information($"Fetched page with {pageResults.Count} features (filtered to {filteredPageResults.Count}), last ID: {lastFeatureId}, total so far: {changedFeatures.Count}");
                         
                         // If we got fewer results than the page size, we've reached the end
                         if (pageResults.Count < pageSize)
