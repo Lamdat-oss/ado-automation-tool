@@ -69,11 +69,11 @@ try
     // Run aggregation script
     Log.Information("Starting aggregation script execution...");
     var scriptRunId = Guid.NewGuid().ToString();
-    var lastRun = DateTime.Now.AddSeconds(-1); // Default to 7 days ago
+    var lastRun = DateTime.Now.AddDays(-1); // Default to 7 days ago
     
-    using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(settings.ScriptExecutionTimeoutSeconds));
+    using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds((int)settings.ScheduledScriptExecutionTimeoutSeconds));
     
-    var result = await AggregationScriptRunner.Run(client, Log.Logger, cancellationTokenSource.Token, scriptRunId, lastRun);
+    var result = await AggregationScriptRunnerOneTime.Run(client, Log.Logger, cancellationTokenSource.Token, scriptRunId, lastRun);
     
     if (result.IsSuccess)
     {

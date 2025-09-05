@@ -7,11 +7,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace Lamdat.Aggregation.Scripts
 {
-    internal class AggregationScriptRunner
+    internal class AggregationScriptRunnerOneTime
     {
 
         public static async Task<ScheduledScriptResult> Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken CancellationToken, string ScriptRunId, DateTime LastRun)
@@ -20,11 +19,11 @@ namespace Lamdat.Aggregation.Scripts
             // This script aggregates effort data through the Epic > Feature > PBI/Bug/Glitch > Task hierarchy
             // 1. Bottom-up: Task completed work aggregated to parents (PBI/Bug/Glitch/Feature/Epic)
             // 2. Top-down: Feature estimation/remaining fields aggregated to Epic
-            // Runs every 10 minutes to process work items using paging instead of date filtering
+            // Runs every 10 minutes to process work items that have changed since last run
             //
             // NOTE: This script is specifically designed for PCLabs Ltd and sets Client.Project = "PCLabs"
 
-            Logger.Information("Starting hierarchical work item aggregation with paging...");
+            Logger.Information("Starting hierarchical work item aggregation...");
             Logger.Information($"Processing changes since: {LastRun:yyyy-MM-dd HH:mm:ss}");
 
             try
@@ -72,12 +71,106 @@ namespace Lamdat.Aggregation.Scripts
 
     };
 
-                // Step 1: Find all tasks that have changed since last run using paging
-                var changedTasks = await GetChangedTasksWithPaging(LastRun, Client);
+                // Step 1: Find all tasks that have changed since last run (for bottom-up aggregation)
+                // Fix: Use proper WIQL date format (date only, no time) and > 0 for numeric field instead of IS NOT EMPTY
+                // Option 1: Ensure LastRun is treated as UTC for comparison
+                var sinceLastRunUtc = LastRun.Kind == DateTimeKind.Utc
+                    ? LastRun
+                    : LastRun.ToUniversalTime();
+                var sinceLastRun = sinceLastRunUtc.ToString("yyyy-MM-dd");
+
+                // Option 2: Add ChangedDate to query results and filter in memory for precise UTC comparison
+                var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
+                var changedTasksQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
+                                          [Microsoft.VSTS.Scheduling.CompletedWork], [Microsoft.VSTS.Common.Activity], 
+                                          [System.ChangedDate]
+                                          FROM WorkItems 
+                                          WHERE [System.WorkItemType] = 'Task' 
+                                          AND [System.TeamProject] = 'PCLabs'
+                                          AND [System.ChangedDate] >= '{sinceLastRunDate}' 
+                                          
+                                          ORDER BY [System.ChangedDate]";
+
+
+                var allChangedTasks = await Client.QueryWorkItemsByWiql(changedTasksQuery);
+
+                // Filter with precise UTC comparison
+                var changedTasks = allChangedTasks.Where(task =>
+                {
+                    var changedDate = task.GetField<DateTime?>("System.ChangedDate");
+                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                }).ToList();
+
+
                 Logger.Information($"Found {changedTasks.Count} changed tasks with completed work since last run");
 
-                // Step 2: Find all features that have changed since last run using paging
-                var changedFeatures = await GetChangedFeaturesWithPaging(LastRun, Client);
+                // Step 2: Find all features that have changed since last run (for top-down aggregation)
+                // Use paging to handle large result sets
+                var changedFeatures = new List<WorkItem>();
+                const int pageSize = 200; // Azure DevOps default limit
+                int? lastFeatureId = null;
+                bool hasMoreFeatures = true;
+
+                Logger.Information("Fetching changed features with paging to handle large result sets");
+
+                while (hasMoreFeatures)
+                {
+                    string changedFeaturesQuery;
+                    
+                    if (lastFeatureId == null)
+                    {
+                        // First page - no ID filter needed
+                        changedFeaturesQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
+                                     FROM WorkItems 
+                                     WHERE [System.WorkItemType] = 'Feature' 
+                                     AND [System.TeamProject] = 'PCLabs'
+                                     AND [System.ChangedDate] >= '{sinceLastRun}'                                  
+                                     ORDER BY [System.Id]";
+                    }
+                    else
+                    {
+                        // Subsequent pages - filter by ID to continue from where we left off
+                        changedFeaturesQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
+                                     FROM WorkItems 
+                                     WHERE [System.WorkItemType] = 'Feature' 
+                                     AND [System.TeamProject] = 'PCLabs'
+                                     AND [System.ChangedDate] >= '{sinceLastRun}'
+                                     AND [System.Id] > {lastFeatureId}                                  
+                                     ORDER BY [System.Id]";
+                    }
+
+                    var pageResults = await Client.QueryWorkItemsByWiql(changedFeaturesQuery, pageSize);
+                    
+                    if (pageResults.Count == 0)
+                    {
+                        hasMoreFeatures = false;
+                        Logger.Debug($"No more features found, paging complete. Total features fetched: {changedFeatures.Count}");
+                    }
+                    else
+                    {
+                        // Filter with precise UTC comparison for this page
+                        var filteredPageResults = pageResults.Where(feature =>
+                        {
+                            var changedDate = feature.GetField<DateTime?>("System.ChangedDate");
+                            return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                        }).ToList();
+
+                        changedFeatures.AddRange(filteredPageResults);
+                        lastFeatureId = pageResults.Last().Id;
+                        
+                        Logger.Debug($"Fetched page with {pageResults.Count} features (filtered to {filteredPageResults.Count}), last ID: {lastFeatureId}, total so far: {changedFeatures.Count}");
+                        
+                        // If we got fewer results than the page size, we've reached the end
+                        if (pageResults.Count < pageSize)
+                        {
+                            hasMoreFeatures = false;
+                            Logger.Debug($"Received fewer results than page size ({pageResults.Count} < {pageSize}), paging complete");
+                        }
+                    }
+                }
+
+                var changedFeaturesRet = changedFeatures;
+
                 Logger.Information($"Found {changedFeatures.Count} changed features since last run");
 
                 // Check for work items in "Removed" state that need parent recalculation
@@ -137,197 +230,6 @@ namespace Lamdat.Aggregation.Scripts
                 return ScheduledScriptResult.Success(5, $"Aggregation failed, will retry in 5 minutes: {ex.Message}");
             }
 
-            // Get changed tasks using paging to avoid query size limits
-            async Task<List<WorkItem>> GetChangedTasksWithPaging(DateTime lastRun, IAzureDevOpsClient client)
-            {
-                var changedTasks = new List<WorkItem>();
-                const int pageSize = 200; // Azure DevOps recommended page size
-                var skip = 0;
-                var hasMoreResults = true;
-                DateTime? lastProcessedDate = null;
-
-                Logger.Information("Fetching changed tasks using paging approach...");
-
-                while (hasMoreResults)
-                {
-                    try
-                    {
-                        // Build WIQL query with proper date-only format for Azure DevOps
-                        var changedTasksQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
-                                                  [Microsoft.VSTS.Scheduling.CompletedWork], [Microsoft.VSTS.Common.Activity], 
-                                                  [System.ChangedDate]
-                                                  FROM WorkItems 
-                                                  WHERE [System.WorkItemType] = 'Task' 
-                                                  AND [System.TeamProject] = 'PCLabs'";
-
-                        // Add date filtering for paging - use date-only format
-                        if (lastProcessedDate.HasValue)
-                        {
-                            // For subsequent pages, get items older than the last processed date (date-only format)
-                            var lastProcessedDateOnly = lastProcessedDate.Value.ToString("yyyy-MM-dd");
-                            changedTasksQuery += $" AND [System.ChangedDate] < '{lastProcessedDateOnly}'";
-                        }
-
-                        changedTasksQuery += " ORDER BY [System.ChangedDate] DESC";
-
-                        // Use the top parameter in the API call, not in the query
-                        var pageResults = await client.QueryWorkItemsByWiql(changedTasksQuery, pageSize);
-
-                        if (pageResults.Count == 0)
-                        {
-                            hasMoreResults = false;
-                            break;
-                        }
-
-                        // Filter results by LastRun date and add to collection
-                        var filteredPageResults = pageResults.Where(task =>
-                        {
-                            var changedDate = task.GetField<DateTime?>("System.ChangedDate");
-                            return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= lastRun.ToUniversalTime();
-                        }).ToList();
-
-                        changedTasks.AddRange(filteredPageResults);
-
-                        Logger.Debug($"Page {skip / pageSize + 1}: Retrieved {pageResults.Count} tasks, {filteredPageResults.Count} match date filter");
-
-                        // Update the last processed date for next iteration
-                        if (pageResults.Count > 0)
-                        {
-                            lastProcessedDate = pageResults.Last().GetField<DateTime?>("System.ChangedDate");
-                        }
-
-                        // If we got fewer results than page size, we've reached the end
-                        if (pageResults.Count < pageSize)
-                        {
-                            hasMoreResults = false;
-                        }
-
-                        // If this page has no results matching our date filter and we're getting older records,
-                        // we can stop as subsequent pages will be even older
-                        if (filteredPageResults.Count == 0 && pageResults.Count > 0)
-                        {
-                            var oldestInPage = pageResults.Min(t => t.GetField<DateTime?>("System.ChangedDate"));
-                            if (oldestInPage.HasValue && oldestInPage.Value.ToUniversalTime() < lastRun.ToUniversalTime())
-                            {
-                                Logger.Debug("Reached tasks older than LastRun, stopping pagination");
-                                hasMoreResults = false;
-                            }
-                        }
-
-                        skip += pageSize;
-
-                        // Safety limit to prevent infinite loops
-                        if (skip > 50000) // Adjust this limit based on your needs
-                        {
-                            Logger.Warning($"Reached safety limit of 50,000 tasks processed, stopping pagination");
-                            hasMoreResults = false;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error($"Error fetching page starting at {skip}: {ex.Message}");
-                        hasMoreResults = false;
-                    }
-                }
-
-                Logger.Information($"Completed paging for tasks: found {changedTasks.Count} changed tasks since {lastRun:yyyy-MM-dd HH:mm:ss}");
-                return changedTasks;
-            }
-
-            // Get changed features using paging to avoid query size limits
-            async Task<List<WorkItem>> GetChangedFeaturesWithPaging(DateTime lastRun, IAzureDevOpsClient client)
-            {
-                var changedFeatures = new List<WorkItem>();
-                const int pageSize = 200; // Azure DevOps recommended page size
-                var skip = 0;
-                var hasMoreResults = true;
-                DateTime? lastProcessedDate = null;
-
-                Logger.Information("Fetching changed features using paging approach...");
-
-                while (hasMoreResults)
-                {
-                    try
-                    {
-                        // Build WIQL query with proper date-only format for Azure DevOps
-                        var changedFeaturesQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
-                                                     FROM WorkItems 
-                                                     WHERE [System.WorkItemType] = 'Feature' 
-                                                     AND [System.TeamProject] = 'PCLabs'";
-
-                        // Add date filtering for paging - use date-only format
-                        if (lastProcessedDate.HasValue)
-                        {
-                            // For subsequent pages, get items older than the last processed date (date-only format)
-                            var lastProcessedDateOnly = lastProcessedDate.Value.ToString("yyyy-MM-dd");
-                            changedFeaturesQuery += $" AND [System.ChangedDate] < '{lastProcessedDateOnly}'";
-                        }
-
-                        changedFeaturesQuery += " ORDER BY [System.ChangedDate] DESC";
-
-                        // Use the top parameter in the API call, not in the query
-                        var pageResults = await client.QueryWorkItemsByWiql(changedFeaturesQuery, pageSize);
-
-                        if (pageResults.Count == 0)
-                        {
-                            hasMoreResults = false;
-                            break;
-                        }
-
-                        // Filter results by LastRun date and add to collection
-                        var filteredPageResults = pageResults.Where(feature =>
-                        {
-                            var changedDate = feature.GetField<DateTime?>("System.ChangedDate");
-                            return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= lastRun.ToUniversalTime();
-                        }).ToList();
-
-                        changedFeatures.AddRange(filteredPageResults);
-
-                        Logger.Debug($"Page {skip / pageSize + 1}: Retrieved {pageResults.Count} features, {filteredPageResults.Count} match date filter");
-
-                        // Update the last processed date for next iteration
-                        if (pageResults.Count > 0)
-                        {
-                            lastProcessedDate = pageResults.Last().GetField<DateTime?>("System.ChangedDate");
-                        }
-
-                        // If we got fewer results than page size, we've reached the end
-                        if (pageResults.Count < pageSize)
-                        {
-                            hasMoreResults = false;
-                        }
-
-                        // If this page has no results matching our date filter and we're getting older records,
-                        // we can stop as subsequent pages will be even older
-                        if (filteredPageResults.Count == 0 && pageResults.Count > 0)
-                        {
-                            var oldestInPage = pageResults.Min(f => f.GetField<DateTime?>("System.ChangedDate"));
-                            if (oldestInPage.HasValue && oldestInPage.Value.ToUniversalTime() < lastRun.ToUniversalTime())
-                            {
-                                Logger.Debug("Reached features older than LastRun, stopping pagination");
-                                hasMoreResults = false;
-                            }
-                        }
-
-                        skip += pageSize;
-
-                        // Safety limit to prevent infinite loops
-                        if (skip > 50000) // Adjust this limit based on your needs
-                        {
-                            Logger.Warning($"Reached safety limit of 50,000 features processed, stopping pagination");
-                            hasMoreResults = false;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error($"Error fetching features page starting at {skip}: {ex.Message}");
-                        hasMoreResults = false;
-                    }
-                }
-
-                Logger.Information($"Completed paging for features: found {changedFeatures.Count} changed features since {lastRun:yyyy-MM-dd HH:mm:ss}");
-                return changedFeatures;
-            }
 
             // Process top-down aggregation from Features to Epics
             async Task ProcessTopDownAggregation(List<WorkItem> changedFeatures, ConcurrentDictionary<string, int> stats, IAzureDevOpsClient client)
@@ -483,6 +385,8 @@ namespace Lamdat.Aggregation.Scripts
 
                     // Aggregate estimation fields from Feature (using simplified Custom.* field names)
                     estimationTotals["TotalEffortEstimation"] += featureWorkItem.GetField<double?>("Microsoft.VSTS.Scheduling.Effort") ?? 0;
+                    // estimationTotals["DevelopmentEffortEstimation"] += featureWorkItem.GetField<double?>("Labs.DevEffortEst") ?? 0;
+                    // estimationTotals["QAEffortEstimation"] += featureWorkItem.GetField<double?>("Labs.QAEffortEst") ?? 0;
                     estimationTotals["DevelopmentEffortEstimation"] += featureWorkItem.GetField<double?>("Labs.DevEffortEst") ?? 0;
                     estimationTotals["QAEffortEstimation"] += featureWorkItem.GetField<double?>("Labs.QAEffortEst") ?? 0;
                     estimationTotals["POEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.POEffortEstimation") ?? 0;
@@ -494,6 +398,8 @@ namespace Lamdat.Aggregation.Scripts
 
                     // Aggregate remaining fields from Feature (using simplified Custom.* field names)
                     remainingTotals["TotalRemainingWork"] += featureWorkItem.GetField<double?>("Microsoft.VSTS.Scheduling.RemainingWork") ?? 0;
+                    // remainingTotals["DevelopmentRemainingWork"] += featureWorkItem.GetField<double?>("Custom.DevelopmentRemainingWork") ?? 0;
+                    // remainingTotals["QARemainingWork"] += featureWorkItem.GetField<double?>("Custom.QARemainingWork") ?? 0;
                     remainingTotals["DevelopmentRemainingWork"] += featureWorkItem.GetField<double?>("Custom.DevelopmentRemainingWork") ?? 0;
                     remainingTotals["QARemainingWork"] += featureWorkItem.GetField<double?>("Custom.QARemainingWork") ?? 0;
                     remainingTotals["PORemainingWork"] += featureWorkItem.GetField<double?>("Custom.PORemainingWork") ?? 0;
@@ -506,6 +412,8 @@ namespace Lamdat.Aggregation.Scripts
 
                     // Aggregate completed work fields from Feature (using simplified Custom.* field names)
                     completedTotals["TotalCompletedWork"] += featureWorkItem.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
+                    // completedTotals["DevelopmentCompletedWork"] += featureWorkItem.GetField<double?>("Custom.DevelopmentCompletedWork") ?? 0;
+                    // completedTotals["QACompletedWork"] += featureWorkItem.GetField<double?>("Custom.QACompletedWork") ?? 0;
                     completedTotals["DevelopmentCompletedWork"] += featureWorkItem.GetField<double?>("Labs.DevCompletedWork") ?? 0;
                     completedTotals["QACompletedWork"] += featureWorkItem.GetField<double?>("Labs.QACompletedWork") ?? 0;
                     completedTotals["POCompletedWork"] += featureWorkItem.GetField<double?>("Custom.POCompletedWork") ?? 0;
@@ -519,7 +427,8 @@ namespace Lamdat.Aggregation.Scripts
 
                 // Update Epic with aggregated estimation values (using simplified Custom.* field names)
                 // Update Epic with aggregated estimation values (using simplified Custom.* field names)
-                epicWorkItem.SetField("Microsoft.VSTS.Scheduling.Effort", Math.Round(estimationTotals["TotalEffortEstimation"], 2));                
+                epicWorkItem.SetField("Microsoft.VSTS.Scheduling.Effort", Math.Round(estimationTotals["TotalEffortEstimation"], 2));
+                //epicWorkItem.SetField("Microsoft.VSTS.Scheduling.Effort", Math.Round(estimationTotals["TotalEffortEstimation"], 2));
                 epicWorkItem.SetField("Labs.DevEffortEst", Math.Round(estimationTotals["DevelopmentEffortEstimation"], 2));
                 epicWorkItem.SetField("Labs.QAEffortEst", Math.Round(estimationTotals["QAEffortEstimation"], 2));
                 epicWorkItem.SetField("Custom.POEffortEstimation", Math.Round(estimationTotals["POEffortEstimation"], 2));
@@ -1089,7 +998,7 @@ namespace Lamdat.Aggregation.Scripts
                                         AND [Source].[System.TeamProject] = 'PCLabs'
                                         AND [Target].[System.TeamProject] = 'PCLabs'
                                         AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
-                                      
+                                     
                                         AND [Target].[System.WorkItemType] = 'Feature'";
 
                         var featureParents = await client.QueryWorkItemsByWiql(featureParentsQuery);
@@ -1212,204 +1121,73 @@ namespace Lamdat.Aggregation.Scripts
                 }
             }
 
-            // Check for removed work items using paging to avoid query size limits
+            // Check for removed work items without processing (used for early exit decision)
             async Task<int> CheckForRemovedWorkItems(ILogger Logger, DateTime LastRun, IAzureDevOpsClient client)
             {
-                Logger.Debug("Checking for work items in 'Removed' state that have changed since last run using paging");
+                Logger.Debug("Checking for work items in 'Removed' state that have changed since last run");
 
-                var removedWorkItemsCount = 0;
-                const int pageSize = 200;
-                var skip = 0;
-                var hasMoreResults = true;
-                DateTime? lastProcessedDate = null;
+                var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
 
-                while (hasMoreResults)
+                // Query for all work items in "Removed" state that have changed since last run
+                var removedWorkItemsQuery = $@"SELECT [System.Id], [System.ChangedDate]
+                                             FROM WorkItems 
+                                             WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
+                                             AND [System.TeamProject] = 'PCLabs'
+                                             AND [System.State] = 'Removed'
+                                             AND [System.ChangedDate] >= '{sinceLastRunDate}'";
+
+                var allRemovedWorkItems = await client.QueryWorkItemsByWiql(removedWorkItemsQuery);
+
+                // Filter with precise UTC comparison
+                var removedWorkItems = allRemovedWorkItems.Where(item =>
                 {
-                    try
-                    {
-                        // Query for all work items in "Removed" state using paging
-                        var removedWorkItemsQuery = $@"SELECT [System.Id], [System.ChangedDate]
-                                                     FROM WorkItems 
-                                                     WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
-                                                     AND [System.TeamProject] = 'PCLabs'
-                                                     AND [System.State] = 'Removed'";
+                    var changedDate = item.GetField<DateTime?>("System.ChangedDate");
+                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                }).ToList();
 
-                        // Add date filtering for paging - use date-only format
-                        if (lastProcessedDate.HasValue)
-                        {
-                            var lastProcessedDateOnly = lastProcessedDate.Value.ToString("yyyy-MM-dd");
-                            removedWorkItemsQuery += $" AND [System.ChangedDate] < '{lastProcessedDateOnly}'";
-                        }
-
-                        removedWorkItemsQuery += " ORDER BY [System.ChangedDate] DESC";
-
-                        // Use the top parameter in the API call, not in the query
-                        var pageResults = await client.QueryWorkItemsByWiql(removedWorkItemsQuery, pageSize);
-
-                        if (pageResults.Count == 0)
-                        {
-                            hasMoreResults = false;
-                            break;
-                        }
-
-                        // Filter with precise UTC comparison and count
-                        var filteredPageResults = pageResults.Where(item =>
-                        {
-                            var changedDate = item.GetField<DateTime?>("System.ChangedDate");
-                            return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
-                        }).ToList();
-
-                        removedWorkItemsCount += filteredPageResults.Count;
-
-                        // Update the last processed date for next iteration
-                        if (pageResults.Count > 0)
-                        {
-                            lastProcessedDate = pageResults.Last().GetField<DateTime?>("System.ChangedDate");
-                        }
-
-                        // If we got fewer results than page size, we've reached the end
-                        if (pageResults.Count < pageSize)
-                        {
-                            hasMoreResults = false;
-                        }
-
-                        // If this page has no results matching our date filter and we're getting older records,
-                        // we can stop as subsequent pages will be even older
-                        if (filteredPageResults.Count == 0 && pageResults.Count > 0)
-                        {
-                            var oldestInPage = pageResults.Min(item => item.GetField<DateTime?>("System.ChangedDate"));
-                            if (oldestInPage.HasValue && oldestInPage.Value.ToUniversalTime() < LastRun.ToUniversalTime())
-                            {
-                                Logger.Debug("Reached removed items older than LastRun, stopping pagination");
-                                hasMoreResults = false;
-                            }
-                        }
-
-                        skip += pageSize;
-
-                        // Safety limit to prevent infinite loops
-                        if (skip > 50000)
-                        {
-                            Logger.Warning($"Reached safety limit of 50,000 removed items processed, stopping pagination");
-                            hasMoreResults = false;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error($"Error fetching removed items page starting at {skip}: {ex.Message}");
-                        hasMoreResults = false;
-                    }
-                }
-
-                Logger.Debug($"Found {removedWorkItemsCount} work items in 'Removed' state for early exit check");
-                return removedWorkItemsCount;
+                Logger.Debug($"Found {removedWorkItems.Count} work items in 'Removed' state for early exit check");
+                return removedWorkItems.Count;
             }
 
-            // Add work items in "Removed" state to affected collections using paging
+            // Add work items in "Removed" state to affected collections for parent recalculation
             async Task AddRemovedWorkItemsToAffectedCollections(ILogger Logger, DateTime LastRun, IAzureDevOpsClient client, HashSet<int> affectedPBIs, HashSet<int> affectedBugs, HashSet<int> affectedGlitches, HashSet<int> affectedFeatures, HashSet<int> affectedEpics, ConcurrentDictionary<string, int> stats)
             {
-                Logger.Information("Finding work items in 'Removed' state that have changed since last run using paging");
+                Logger.Information("Finding work items in 'Removed' state that have changed since last run");
 
-                var allRemovedWorkItems = new List<WorkItem>();
-                const int pageSize = 200;
-                var skip = 0;
-                var hasMoreResults = true;
-                DateTime? lastProcessedDate = null;
+                var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
 
-                while (hasMoreResults)
+                // Query for all work items in "Removed" state that have changed since last run
+                var removedWorkItemsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
+                                             FROM WorkItems 
+                                             WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
+                                             AND [System.TeamProject] = 'PCLabs'
+                                             AND [System.State] = 'Removed'
+                                             AND [System.ChangedDate] >= '{sinceLastRunDate}'
+                                             ORDER BY [System.ChangedDate]";
+
+                var allRemovedWorkItems = await client.QueryWorkItemsByWiql(removedWorkItemsQuery);
+
+                // Filter with precise UTC comparison
+                var removedWorkItems = allRemovedWorkItems.Where(item =>
                 {
-                    try
-                    {
-                        // Query for all work items in "Removed" state using paging
-                        var removedWorkItemsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
-                                                     FROM WorkItems 
-                                                     WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
-                                                     AND [System.TeamProject] = 'PCLabs'
-                                                     AND [System.State] = 'Removed'";
+                    var changedDate = item.GetField<DateTime?>("System.ChangedDate");
+                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                }).ToList();
 
-                        // Add date filtering for paging - use date-only format
-                        if (lastProcessedDate.HasValue)
-                        {
-                            var lastProcessedDateOnly = lastProcessedDate.Value.ToString("yyyy-MM-dd");
-                            removedWorkItemsQuery += $" AND [System.ChangedDate] < '{lastProcessedDateOnly}'";
-                        }
+                Logger.Information($"Found {removedWorkItems.Count} work items in 'Removed' state that have changed since last run");
 
-                        removedWorkItemsQuery += " ORDER BY [System.ChangedDate] DESC";
-
-                        // Use the top parameter in the API call, not in the query
-                        var pageResults = await client.QueryWorkItemsByWiql(removedWorkItemsQuery, pageSize);
-
-                        if (pageResults.Count == 0)
-                        {
-                            hasMoreResults = false;
-                            break;
-                        }
-
-                        // Filter with precise UTC comparison
-                        var filteredPageResults = pageResults.Where(item =>
-                        {
-                            var changedDate = item.GetField<DateTime?>("System.ChangedDate");
-                            return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
-                        }).ToList();
-
-                        allRemovedWorkItems.AddRange(filteredPageResults);
-
-                        Logger.Debug($"Removed items page {skip / pageSize + 1}: Retrieved {pageResults.Count} items, {filteredPageResults.Count} match date filter");
-
-                        // Update the last processed date for next iteration
-                        if (pageResults.Count > 0)
-                        {
-                            lastProcessedDate = pageResults.Last().GetField<DateTime?>("System.ChangedDate");
-                        }
-
-                        // If we got fewer results than page size, we've reached the end
-                        if (pageResults.Count < pageSize)
-                        {
-                            hasMoreResults = false;
-                        }
-
-                        // If this page has no results matching our date filter and we're getting older records,
-                        // we can stop as subsequent pages will be even older
-                        if (filteredPageResults.Count == 0 && pageResults.Count > 0)
-                        {
-                            var oldestInPage = pageResults.Min(item => item.GetField<DateTime?>("System.ChangedDate"));
-                            if (oldestInPage.HasValue && oldestInPage.Value.ToUniversalTime() < LastRun.ToUniversalTime())
-                            {
-                                Logger.Debug("Reached removed items older than LastRun, stopping pagination");
-                                hasMoreResults = false;
-                            }
-                        }
-
-                        skip += pageSize;
-
-                        // Safety limit to prevent infinite loops
-                        if (skip > 50000)
-                        {
-                            Logger.Warning($"Reached safety limit of 50,000 removed items processed, stopping pagination");
-                            hasMoreResults = false;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error($"Error fetching removed items page starting at {skip}: {ex.Message}");
-                        hasMoreResults = false;
-                    }
-                }
-
-                Logger.Information($"Found {allRemovedWorkItems.Count} work items in 'Removed' state that have changed since last run");
-
-                if (allRemovedWorkItems.Count == 0)
+                if (removedWorkItems.Count == 0)
                 {
                     Logger.Debug("No removed work items found - skipping removed items processing");
                     return;
                 }
 
                 // Separate removed items by type for targeted parent queries
-                var removedTasks = allRemovedWorkItems.Where(wi => wi.WorkItemType == "Task").ToList();
-                var removedPBIs = allRemovedWorkItems.Where(wi => wi.WorkItemType == "Product Backlog Item").ToList();
-                var removedBugs = allRemovedWorkItems.Where(wi => wi.WorkItemType == "Bug").ToList();
-                var removedGlitches = allRemovedWorkItems.Where(wi => wi.WorkItemType == "Glitch").ToList();
-                var removedFeatures = allRemovedWorkItems.Where(wi => wi.WorkItemType == "Feature").ToList();
+                var removedTasks = removedWorkItems.Where(wi => wi.WorkItemType == "Task").ToList();
+                var removedPBIs = removedWorkItems.Where(wi => wi.WorkItemType == "Product Backlog Item").ToList();
+                var removedBugs = removedWorkItems.Where(wi => wi.WorkItemType == "Bug").ToList();
+                var removedGlitches = removedWorkItems.Where(wi => wi.WorkItemType == "Glitch").ToList();
+                var removedFeatures = removedWorkItems.Where(wi => wi.WorkItemType == "Feature").ToList();
 
                 Logger.Debug($"Removed items breakdown: {removedTasks.Count} tasks, {removedPBIs.Count} PBIs, {removedBugs.Count} bugs, {removedGlitches.Count} glitches, {removedFeatures.Count} features");
 
@@ -1444,10 +1222,10 @@ namespace Lamdat.Aggregation.Scripts
                 // Update statistics for removed items processed
                 if (stats.ContainsKey("RemovedItemsProcessed"))
                 {
-                    stats["RemovedItemsProcessed"] = allRemovedWorkItems.Count;
+                    stats["RemovedItemsProcessed"] = removedWorkItems.Count;
                 }
             }
-
         }
+
     }
 }
