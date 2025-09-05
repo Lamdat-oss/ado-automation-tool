@@ -364,7 +364,7 @@ namespace Lamdat.Aggregation.Scripts
                               AND [Target].[System.WorkItemType] = 'Epic'";
 
                         var batchEpicParents = await client.QueryWorkItemsByWiql(batchEpicParentsQuery);
-                        Logger.Debug($"Found { batchEpicParents.Count} epic parent relationships for batch of { featureBatch.Count} features");
+                        Logger.Debug($"Found {batchEpicParents.Count} epic parent relationships for batch of {featureBatch.Count} features");
 
                         foreach (var epic in batchEpicParents)
                         {
@@ -483,8 +483,8 @@ namespace Lamdat.Aggregation.Scripts
 
                     // Aggregate estimation fields from Feature (using simplified Custom.* field names)
                     estimationTotals["TotalEffortEstimation"] += featureWorkItem.GetField<double?>("Microsoft.VSTS.Scheduling.Effort") ?? 0;
-                    estimationTotals["DevelopmentEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.DevelopmentEffortEstimation") ?? 0;
-                    estimationTotals["QAEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.QAEffortEstimation") ?? 0;
+                    estimationTotals["DevelopmentEffortEstimation"] += featureWorkItem.GetField<double?>("Labs.DevEffortEst") ?? 0;
+                    estimationTotals["QAEffortEstimation"] += featureWorkItem.GetField<double?>("Labs.QAEffortEst") ?? 0;
                     estimationTotals["POEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.POEffortEstimation") ?? 0;
                     estimationTotals["AdminEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.AdminEffortEstimation") ?? 0;
                     estimationTotals["OthersEffortEstimation"] += featureWorkItem.GetField<double?>("Custom.OthersEffortEstimation") ?? 0;
@@ -506,8 +506,8 @@ namespace Lamdat.Aggregation.Scripts
 
                     // Aggregate completed work fields from Feature (using simplified Custom.* field names)
                     completedTotals["TotalCompletedWork"] += featureWorkItem.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
-                    completedTotals["DevelopmentCompletedWork"] += featureWorkItem.GetField<double?>("Custom.DevelopmentCompletedWork") ?? 0;
-                    completedTotals["QACompletedWork"] += featureWorkItem.GetField<double?>("Custom.QACompletedWork") ?? 0;
+                    completedTotals["DevelopmentCompletedWork"] += featureWorkItem.GetField<double?>("Labs.DevCompletedWork") ?? 0;
+                    completedTotals["QACompletedWork"] += featureWorkItem.GetField<double?>("Labs.QACompletedWork") ?? 0;
                     completedTotals["POCompletedWork"] += featureWorkItem.GetField<double?>("Custom.POCompletedWork") ?? 0;
                     completedTotals["AdminCompletedWork"] += featureWorkItem.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
                     completedTotals["OthersCompletedWork"] += featureWorkItem.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
@@ -519,10 +519,9 @@ namespace Lamdat.Aggregation.Scripts
 
                 // Update Epic with aggregated estimation values (using simplified Custom.* field names)
                 // Update Epic with aggregated estimation values (using simplified Custom.* field names)
-                epicWorkItem.SetField("Microsoft.VSTS.Scheduling.Effort", Math.Round(estimationTotals["TotalEffortEstimation"], 2));
-                epicWorkItem.SetField("Custom.TotalEffortEstimation", Math.Round(estimationTotals["TotalEffortEstimation"], 2));
-                epicWorkItem.SetField("Custom.DevelopmentEffortEstimation", Math.Round(estimationTotals["DevelopmentEffortEstimation"], 2));
-                epicWorkItem.SetField("Custom.QAEffortEstimation", Math.Round(estimationTotals["QAEffortEstimation"], 2));
+                epicWorkItem.SetField("Microsoft.VSTS.Scheduling.Effort", Math.Round(estimationTotals["TotalEffortEstimation"], 2));                
+                epicWorkItem.SetField("Labs.DevEffortEst", Math.Round(estimationTotals["DevelopmentEffortEstimation"], 2));
+                epicWorkItem.SetField("Labs.QAEffortEst", Math.Round(estimationTotals["QAEffortEstimation"], 2));
                 epicWorkItem.SetField("Custom.POEffortEstimation", Math.Round(estimationTotals["POEffortEstimation"], 2));
                 epicWorkItem.SetField("Custom.AdminEffortEstimation", Math.Round(estimationTotals["AdminEffortEstimation"], 2));
                 epicWorkItem.SetField("Custom.OthersEffortEstimation", Math.Round(estimationTotals["OthersEffortEstimation"], 2));
@@ -544,8 +543,8 @@ namespace Lamdat.Aggregation.Scripts
 
                 // Update Epic with aggregated completed work values (using simplified Custom.* field names)    
                 epicWorkItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", Math.Round(completedTotals["TotalCompletedWork"], 2));
-                epicWorkItem.SetField("Custom.DevelopmentCompletedWork", Math.Round(completedTotals["DevelopmentCompletedWork"], 2));
-                epicWorkItem.SetField("Custom.QACompletedWork", Math.Round(completedTotals["QACompletedWork"], 2));
+                epicWorkItem.SetField("Labs.DevCompletedWork", Math.Round(completedTotals["DevelopmentCompletedWork"], 2));
+                epicWorkItem.SetField("Labs.QACompletedWork", Math.Round(completedTotals["QACompletedWork"], 2));
                 epicWorkItem.SetField("Custom.POCompletedWork", Math.Round(completedTotals["POCompletedWork"], 2));
                 epicWorkItem.SetField("Custom.AdminCompletedWork", Math.Round(completedTotals["AdminCompletedWork"], 2));
                 epicWorkItem.SetField("Custom.OthersCompletedWork", Math.Round(completedTotals["OthersCompletedWork"], 2));
@@ -676,8 +675,8 @@ namespace Lamdat.Aggregation.Scripts
 
                             // Update Epic completed work fields only (estimation/remaining handled elsewhere)
                             epicWorkItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", Math.Round(epicCompletedWork["TotalCompletedWork"], 2));
-                            epicWorkItem.SetField("Custom.DevelopmentCompletedWork", Math.Round(epicCompletedWork["DevelopmentCompletedWork"], 2));
-                            epicWorkItem.SetField("Custom.QACompletedWork", Math.Round(epicCompletedWork["QACompletedWork"], 2));
+                            epicWorkItem.SetField("Labs.DevCompletedWork", Math.Round(epicCompletedWork["DevelopmentCompletedWork"], 2));
+                            epicWorkItem.SetField("Labs.QACompletedWork", Math.Round(epicCompletedWork["QACompletedWork"], 2));
                             epicWorkItem.SetField("Custom.POCompletedWork", Math.Round(epicCompletedWork["POCompletedWork"], 2));
                             epicWorkItem.SetField("Custom.AdminCompletedWork", Math.Round(epicCompletedWork["AdminCompletedWork"], 2));
                             epicWorkItem.SetField("Custom.OthersCompletedWork", Math.Round(epicCompletedWork["OthersCompletedWork"], 2));
@@ -797,8 +796,8 @@ namespace Lamdat.Aggregation.Scripts
                     {
                         // Handle PBI/Bug/Glitch items (aggregate their already calculated completed work fields)
                         aggregatedData["TotalCompletedWork"] += pbi.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
-                        aggregatedData["DevelopmentCompletedWork"] += pbi.GetField<double?>("Custom.DevelopmentCompletedWork") ?? 0;
-                        aggregatedData["QACompletedWork"] += pbi.GetField<double?>("Custom.QACompletedWork") ?? 0;
+                        aggregatedData["DevelopmentCompletedWork"] += pbi.GetField<double?>("Labs.DevCompletedWork") ?? 0;
+                        aggregatedData["QACompletedWork"] += pbi.GetField<double?>("Labs.QACompletedWork") ?? 0;
                         aggregatedData["POCompletedWork"] += pbi.GetField<double?>("Custom.POCompletedWork") ?? 0;
                         aggregatedData["AdminCompletedWork"] += pbi.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
                         aggregatedData["OthersCompletedWork"] += pbi.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
@@ -863,8 +862,8 @@ namespace Lamdat.Aggregation.Scripts
                     }
 
                     aggregatedData["TotalCompletedWork"] += feature.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
-                    aggregatedData["DevelopmentCompletedWork"] += feature.GetField<double?>("Custom.DevelopmentCompletedWork") ?? 0;
-                    aggregatedData["QACompletedWork"] += feature.GetField<double?>("Custom.QACompletedWork") ?? 0;
+                    aggregatedData["DevelopmentCompletedWork"] += feature.GetField<double?>("Labs.DevCompletedWork") ?? 0;
+                    aggregatedData["QACompletedWork"] += feature.GetField<double?>("Labs.QACompletedWork") ?? 0;
                     aggregatedData["POCompletedWork"] += feature.GetField<double?>("Custom.POCompletedWork") ?? 0;
                     aggregatedData["AdminCompletedWork"] += feature.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
                     aggregatedData["OthersCompletedWork"] += feature.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
@@ -885,8 +884,8 @@ namespace Lamdat.Aggregation.Scripts
                 workItem.SetField("Microsoft.VSTS.Scheduling.CompletedWork", aggregatedData["TotalCompletedWork"]);
 
                 // Update custom fields with simplified Custom.* naming convention
-                workItem.SetField("Custom.DevelopmentCompletedWork", aggregatedData["DevelopmentCompletedWork"]);
-                workItem.SetField("Custom.QACompletedWork", aggregatedData["QACompletedWork"]);
+                workItem.SetField("Labs.DevCompletedWork", aggregatedData["DevelopmentCompletedWork"]);
+                workItem.SetField("Labs.QACompletedWork", aggregatedData["QACompletedWork"]);
                 workItem.SetField("Custom.POCompletedWork", aggregatedData["POCompletedWork"]);
                 workItem.SetField("Custom.AdminCompletedWork", aggregatedData["AdminCompletedWork"]);
                 workItem.SetField("Custom.OthersCompletedWork", aggregatedData["OthersCompletedWork"]);
@@ -1448,6 +1447,7 @@ namespace Lamdat.Aggregation.Scripts
                     stats["RemovedItemsProcessed"] = allRemovedWorkItems.Count;
                 }
             }
+
         }
     }
 }
