@@ -1,21 +1,4 @@
-﻿using Lamdat.ADOAutomationTool.Entities;
-using Lamdat.ADOAutomationTool.ScriptEngine;
-using Serilog;
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Lamdat.Aggregation.Scripts
-{
-    internal class AggregationScriptRunnerOneTime
-    {
-
-        public static async Task<ScheduledScriptResult> Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken CancellationToken, string ScriptRunId, DateTime LastRun)
-        {
-            // Hierarchical Work Item Aggregation Task
+﻿  // Hierarchical Work Item Aggregation Task
             // This script aggregates effort data through the Epic > Feature > PBI/Bug/Glitch > Task hierarchy
             // 1. Bottom-up: Task completed work aggregated to parents (PBI/Bug/Glitch/Feature/Epic)
             // 2. Top-down: Feature estimation/remaining fields aggregated to Epic
@@ -1367,7 +1350,3 @@ namespace Lamdat.Aggregation.Scripts
                     stats["RemovedItemsProcessed"] = removedWorkItems.Count;
                 }
             }
-        }
-
-    }
-}
