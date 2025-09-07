@@ -129,13 +129,30 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+/// <summary>
+/// Sanitizes user input for logging by removing newlines and carriage returns to prevent log injection
+/// </summary>
+/// <param name="input">The input string to sanitize</param>
+/// <returns>Sanitized string safe for logging</returns>
+static string SanitizeForLogging(string input)
+{
+    if (string.IsNullOrEmpty(input))
+        return input;
+    
+    return input.Replace("\n", "").Replace("\r", "");
+}
+
 app.Use(async (context, next) =>
 {
     if (context.Request.Path.StartsWithSegments("/webhook"))
     {
         var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        // Sanitize the remote IP address before logging to prevent log injection
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+        var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
+        
         logger.LogDebug("Webhook request received: {Method} {Path} from {RemoteIP}", 
-            context.Request.Method, context.Request.Path, context.Connection.RemoteIpAddress);
+            context.Request.Method, context.Request.Path, sanitizedRemoteIp);
     }
     await next();
 });
