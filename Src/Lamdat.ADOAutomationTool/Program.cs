@@ -27,25 +27,11 @@ builder.Services.AddLogging(opt =>
 
 });
 
-builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: false) // Set to false in production
                     .AddEnvironmentVariables()
                     .AddCommandLine(args);
 
-builder.Services.Configure<Settings>(builder.Configuration.GetSection("Settings"));
-builder.WebHost.UseKestrel().UseUrls("http://*:5000");
-
-builder.Services.AddAuthentication("BasicAuthentication")
-    .AddScheme<BasicAuthenticationOptions, BasicAuthenticationHandler>("BasicAuthentication", options => { });
-
-builder.Services.Configure<BasicAuthenticationOptions>(options =>
-{
-    var settings = builder.Configuration.GetSection("Settings").Get<Settings>();
-    if (string.IsNullOrWhiteSpace(settings.SharedKey))
-        Console.WriteLine($"Shared key is not defined or null, please set the shared key");
-    else
-        options.SharedKey = settings?.SharedKey;
-});
-
+// Move settings loading before authentication configuration
 var settings = builder.Configuration.GetSection("Settings").Get<Settings>();
 if (settings == null)
 {
@@ -53,11 +39,36 @@ if (settings == null)
     return;
 }
 
+// Validate SharedKey early
+if (string.IsNullOrWhiteSpace(settings.SharedKey))
+{
+    Console.WriteLine("ERROR: Shared key is not defined or null, please set the shared key");
+    return; // Don't start the application if SharedKey is missing
+}
+
+builder.Services.Configure<Settings>(builder.Configuration.GetSection("Settings"));
+builder.WebHost.UseKestrel().UseUrls("http://*:5000");
+
+builder.Services.AddAuthentication("BasicAuthentication")
+    .AddScheme<BasicAuthenticationOptions, BasicAuthenticationHandler>("BasicAuthentication", options => { });
+
+// Use the already loaded settings to avoid race conditions
+builder.Services.Configure<BasicAuthenticationOptions>(options =>
+{
+    options.SharedKey = settings.SharedKey; // Use the validated settings
+});
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigins", cors =>
     {
-        cors.WithOrigins(settings.AllowedCorsOrigin);
+        cors.WithOrigins(
+                "https://dev.azure.com", 
+                "https://*.visualstudio.com",
+                settings.AllowedCorsOrigin
+            )
+            .AllowAnyMethod()
+            .AllowAnyHeader();
     });
 });
 
@@ -118,7 +129,36 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+/// <summary>
+/// Sanitizes user input for logging by removing newlines and carriage returns to prevent log injection
+/// </summary>
+/// <param name="input">The input string to sanitize</param>
+/// <returns>Sanitized string safe for logging</returns>
+static string SanitizeForLogging(string input)
+{
+    if (string.IsNullOrEmpty(input))
+        return input;
+    
+    return input.Replace("\n", "").Replace("\r", "");
+}
+
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/webhook"))
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        // Sanitize the remote IP address before logging to prevent log injection
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+        var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
+        
+        logger.LogDebug("Webhook request received: {Method} {Path} from {RemoteIP}", 
+            context.Request.Method, context.Request.Path, sanitizedRemoteIp);
+    }
+    await next();
+});
+
 app.UseAuthentication();
+app.UseCors("AllowSpecificOrigins"); // Add this line - CRITICAL!
 app.UseAuthorization();
 
 app.MapControllers();
