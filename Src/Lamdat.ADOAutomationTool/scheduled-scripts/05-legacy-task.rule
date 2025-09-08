@@ -1,0 +1,20 @@
+// Legacy scheduled task - demonstrates backward compatibility
+// This script shows how existing scripts continue to work with the new LastRun parameter
+
+Logger.Information("Legacy scheduled task is running!");
+Logger.Information($"This script now has access to LastRun: {LastRun:yyyy-MM-dd HH:mm:ss}");
+
+var user = await Client.WhoAmI();
+Logger.Information($"Legacy task running as: {user?.Identity?.DisplayName}");
+
+// Your existing automation logic here
+Logger.Information("Legacy task processing...");
+
+// Even legacy scripts can now optionally use LastRun if needed
+var minutesSinceLastRun = (DateTime.Now - LastRun).TotalMinutes;
+if (minutesSinceLastRun > 60)
+{
+    Logger.Information($"It's been {minutesSinceLastRun:F0} minutes since last run - might need catch-up processing");
+}
+
+Logger.Information("Legacy task completed successfully");

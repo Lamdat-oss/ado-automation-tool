@@ -3,6 +3,8 @@ using Lamdat.ADOAutomationTool.Service;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -89,32 +91,46 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
         using Lamdat.ADOAutomationTool.Service;
         using Serilog;
         using System.Collections;
+        using System.Collections.Concurrent;
         using System.Collections.Generic;
         using System.Linq;
         using System.Text;
+        using System.Threading;
         using System.Threading.Tasks;
         using System;
 
-            public async Task Run(IAzureDevOpsClient Client, string EventType, ILogger Logger, string? Project, Relations RelationChanges, WorkItem Self, Dictionary<string, object> SelfChanges, WebHookResourceUpdate WebHookResource)
+            public async Task Run(IAzureDevOpsClient Client, string EventType, ILogger Logger, string? Project, Relations RelationChanges, WorkItem Self, Dictionary<string, object> SelfChanges, WebHookResourceUpdate WebHookResource, CancellationToken cancellationToken, string ScriptRunId)
             {");
                             stringBuilder.AppendLine(scriptCode);
                             stringBuilder.AppendLine("}");
                             scriptCode = stringBuilder.ToString();
 
+
                             lock (_lock)
                             {
                                 var script = CSScript.Evaluator.LoadMethod<IScript>(scriptCode);
+                                
+                                Stopwatch stopWatch = new Stopwatch();
                                 try
                                 {
                                     // Pass the cancellation token to the script if needed (not shown in IScript interface)
+                                    stopWatch.Start();
+                                    
                                     script.Run(context.Client, context.EventType, context.Logger, context.Project, context.RelationChanges, context.Self,
-                                        context.SelfChanges, context.WebHookResource).Wait(token);
+                                        context.SelfChanges, context.WebHookResource, token, context.ScriptRunId).Wait();
 
                                     context.Client.SaveWorkItem(context.Self, attempts == MAX_ATTEMPTS).Wait(token);
                                 }
                                 finally
                                 {
                                     script = null;
+                                    
+                                    stopWatch.Stop();
+                                    TimeSpan ts = stopWatch.Elapsed;
+                                    string elapsedTime = String.Format("{0:00} min {1:00} sec {2:000} ms", ts.Minutes, ts.Seconds, ts.Milliseconds / 10);
+                                    _logger.Information($"                       ----");
+                                    _logger.Information($"Script '{scriptFile}' execution time on attempt {attempts - 1} for {context.Self.WorkItemType} with ID {context.Self.Id}: {elapsedTime}. (Run ID {context.ScriptRunId})");
+
                                 }
                             }
 
@@ -148,7 +164,7 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
             }
             catch (Exception ex)
             {
-                var erro = $"Error executing scripts: {ex.Message}";
+                var erro = $"Error executing scripts: {ex.Message}, {ex.StackTrace}";
                 _logger.Error(erro);
                 errCol.GetOrAdd("Error", erro);
             }
@@ -159,9 +175,13 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
         private void LogExecutionAttempt(IContext context, string scriptFile, int attempts)
         {
             if (attempts == 1)
-                _logger.Information($"**** Event:'{context.EventType}'; Workitem type:'{context.Self.WorkItemType}',Workitem Id: {context.Self.Id}, executing script {scriptFile} ****");
+            {
+                _logger.Information($"----------------------------------------------------");
+                _logger.Information(
+                    $"**** Event:'{context.EventType}'; Workitem type:'{context.Self.WorkItemType}',Workitem Id: {context.Self.Id}, executing script {scriptFile}. (Run ID {context.ScriptRunId}) ****");
+            }
             else
-                _logger.Information($"** Attempt {attempts}, Event '{context.EventType}', executing script {scriptFile} **");
+                _logger.Information($"** Attempt {attempts}, Event '{context.EventType}', executing script {scriptFile}. (Run ID {context.ScriptRunId}) **");
         }
 
         private void HandleScriptError(ConcurrentDictionary<string, string> errCol, string scriptFile, int attempts, Exception ex, string errorMessage)
@@ -174,10 +194,20 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
             errCol.GetOrAdd(scriptFile, error);
         }
     }
-}
 
-public interface IScript
-{
-    Task Run(IAzureDevOpsClient Client, string EventType, Serilog.ILogger Logger, string? Project, Relations RelationChanges, WorkItem Self, Dictionary<string, object> SelfChanges, WebHookResourceUpdate WebHookResource);
+    public interface IScript
+    {
+        Task Run(
+            IAzureDevOpsClient Client,
+            string EventType,
+            Serilog.ILogger Logger,
+            string? Project,
+            Relations RelationChanges,
+            WorkItem Self,
+            Dictionary<string, object> SelfChanges,
+            WebHookResourceUpdate WebHookResource,
+            CancellationToken cancellationToken,
+            string ScriptRunId);
+    }
 }
 

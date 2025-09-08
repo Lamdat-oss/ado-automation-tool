@@ -1,0 +1,46 @@
+// Daily report task - runs every 24 hours (1440 minutes)
+// This script demonstrates how to create a daily scheduled task that processes work items since last run
+
+Logger.Information("Starting daily report generation...");
+Logger.Information($"Last run was: {LastRun:yyyy-MM-dd HH:mm:ss}");
+
+try 
+{
+    var user = await Client.WhoAmI();
+    Logger.Information($"Generating daily report as: {user?.Identity?.DisplayName}");
+    
+    // Query for work items created/updated since last run
+    var sinceLastRun = LastRun.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+    var queryParams = new QueryLinksByWiqlPrms
+    {
+        Wiql = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State] 
+                  FROM WorkItems 
+                  WHERE [System.ChangedDate] >= '{sinceLastRun}' 
+                  ORDER BY [System.ChangedDate] DESC"
+    };
+    
+    var workItemsUpdated = await Client.QueryLinksByWiql(queryParams);
+    Logger.Information($"Found {workItemsUpdated.Count} work items updated since last run");
+    
+    // Process work items for report
+    var reportData = new
+    {
+        ReportDate = DateTime.Now,
+        LastRunDate = LastRun,
+        WorkItemsProcessed = workItemsUpdated.Count,
+        WorkItemTypes = workItemsUpdated.GroupBy(w => w.WorkItemType).ToDictionary(g => g.Key, g => g.Count())
+    };
+    
+    Logger.Information($"Daily report generated at {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+    Logger.Information($"Report summary: {reportData.WorkItemsProcessed} items since {LastRun:yyyy-MM-dd HH:mm:ss}");
+    
+    // Return success with 24-hour interval (1440 minutes)
+    return ScheduledScriptResult.Success(1440, "Daily report task scheduled for next 24 hours");
+}
+catch (Exception ex)
+{
+    Logger.Error(ex, "Error generating daily report");
+    
+    // Return failure result - the script will retry with default interval
+    return ScheduledScriptResult.Failure($"Daily report failed: {ex.Message}");
+}

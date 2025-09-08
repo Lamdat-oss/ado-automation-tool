@@ -1,0 +1,32 @@
+// Health check task - runs every 10 minutes
+// This script demonstrates a frequent monitoring task
+
+Logger.Information("Starting system health check...");
+
+try 
+{
+    var user = await Client.WhoAmI();
+    Logger.Information($"Health check running as: {user?.Identity?.DisplayName}");
+    
+    // Example health checks
+    var healthStatus = "Healthy";
+    Logger.Information($"System status: {healthStatus}");
+    
+    // You could add checks for:
+    // - Azure DevOps connectivity
+    // - Database connectivity  
+    // - External service availability
+    // - Performance metrics
+    
+    Logger.Information("Health check completed successfully");
+    
+    // Return success with 10-minute interval
+    return ScheduledScriptResult.Success(10, "Health check scheduled for next 10 minutes");
+}
+catch (Exception ex)
+{
+    Logger.Error(ex, "Health check failed");
+    
+    // For critical monitoring, we might want to retry sooner on failure
+    return ScheduledScriptResult.Success(2, $"Health check failed, will retry in 2 minutes: {ex.Message}");
+}
