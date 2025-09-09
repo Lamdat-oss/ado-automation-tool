@@ -151,10 +151,80 @@ app.Use(async (context, next) =>
         var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
         var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
         
-        logger.LogDebug("Webhook request received: {Method} {Path} from {RemoteIP}", 
-            context.Request.Method, context.Request.Path, sanitizedRemoteIp);
+        // Log detailed request information for debugging
+        logger.LogDebug("Webhook request received: {Method} {Path} from {RemoteIP}, Content-Length: {ContentLength}, Content-Type: {ContentType}", 
+            context.Request.Method, 
+            context.Request.Path, 
+            sanitizedRemoteIp,
+            context.Request.ContentLength?.ToString() ?? "null",
+            context.Request.ContentType ?? "null");
+            
+        // Check for potential issues before processing
+        if (context.Request.Method == "POST")
+        {
+            var contentLength = context.Request.ContentLength;
+            var hasAuthHeader = context.Request.Headers.ContainsKey("Authorization");
+            
+            logger.LogDebug("POST webhook details - ContentLength: {ContentLength}, HasAuthHeader: {HasAuth}, UserAgent: {UserAgent}", 
+                contentLength?.ToString() ?? "null", 
+                hasAuthHeader,
+                SanitizeForLogging(context.Request.Headers.UserAgent.ToString()));
+                
+            // Warn about potential issues
+            if (!hasAuthHeader)
+            {
+                logger.LogDebug("Webhook POST request missing Authorization header from {RemoteIP}", sanitizedRemoteIp);
+            }
+            
+            if (contentLength == null)
+            {
+                logger.LogWarning("Webhook POST request missing Content-Length header from {RemoteIP}", sanitizedRemoteIp);
+            }
+            else if (contentLength == 0)
+            {
+                logger.LogWarning("Webhook POST request has Content-Length 0 from {RemoteIP}", sanitizedRemoteIp);
+            }
+        }
     }
-    await next();
+    
+    try
+    {
+        await next();
+    }
+    catch (Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException ex) when (ex.Message.Contains("Unexpected end of request content"))
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+        var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
+        
+        logger.LogWarning("Bad HTTP request from {RemoteIP}: {Error}. Request: {Method} {Path}, Content-Length: {ContentLength}", 
+            sanitizedRemoteIp, 
+            ex.Message,
+            context.Request.Method,
+            context.Request.Path,
+            context.Request.ContentLength?.ToString() ?? "null");
+            
+        // Return a proper HTTP response instead of letting it bubble up
+        context.Response.StatusCode = 400;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsync("{\"error\":\"Bad request - incomplete content\",\"details\":\"Request content was incomplete or malformed\"}");
+    }
+    catch (Exception ex)
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+        var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
+        
+        logger.LogError(ex, "Unhandled exception in request pipeline from {RemoteIP}: {Method} {Path}", 
+            sanitizedRemoteIp, context.Request.Method, context.Request.Path);
+        
+        if (!context.Response.HasStarted)
+        {
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Internal server error\"}");
+        }
+    }
 });
 
 app.UseAuthentication();
