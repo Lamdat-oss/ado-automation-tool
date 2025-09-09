@@ -37,54 +37,33 @@ namespace Lamdat.ADOAutomationTool.Controllers
                 
                 string body;
                 
-                try
+                // Check if there's a content-length header
+                var contentLength = Request.ContentLength;
+                _logger.LogDebug("Content-Length header: {ContentLength}", contentLength?.ToString() ?? "null");
+                
+                // If content length is 0 or null, return early
+                if (contentLength == 0)
                 {
-                    // Check if there's a content-length header
-                    var contentLength = Request.ContentLength;
-                    _logger.LogDebug("Content-Length header: {ContentLength}", contentLength?.ToString() ?? "null");
-                    
-                    // If content length is 0 or null, return early
-                    if (contentLength == 0)
-                    {
-                        _logger.LogWarning("Received webhook with Content-Length 0 from {RemoteIP} for user {User}", 
-                            HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown",
-                            User.Identity?.Name ?? "Anonymous");
-                        return BadRequest("Empty webhook payload - Content-Length is 0");
-                    }
-                    
-                    // Enable buffering to allow multiple reads if needed
-                    Request.EnableBuffering();
-                    
-                    // Use a more robust approach to read the body
-                    using var memoryStream = new MemoryStream();
-                    await Request.Body.CopyToAsync(memoryStream);
-                    
-                    // Reset position for potential future reads
-                    Request.Body.Position = 0;
-                    
-                    // Convert to string
-                    body = Encoding.UTF8.GetString(memoryStream.ToArray());
-                    
-                    _logger.LogDebug("Successfully read {ActualBytes} bytes from request body", memoryStream.Length);
-                }
-                catch (Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException ex) when (ex.Message.Contains("Unexpected end of request content"))
-                {
-                    _logger.LogWarning("Client sent incomplete request content from {RemoteIP} for user {User}. Error: {Error}", 
-                        HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown",
-                        User.Identity?.Name ?? "Anonymous",
-                        ex.Message);
-                    
-                    // Return a specific error for incomplete requests
-                    return StatusCode(400, new { error = "Incomplete request content", details = "Client disconnected or sent malformed content" });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error reading request body from {RemoteIP} for user {User}", 
+                    _logger.LogWarning("Received webhook with Content-Length 0 from {RemoteIP} for user {User}", 
                         HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown",
                         User.Identity?.Name ?? "Anonymous");
-                    
-                    return StatusCode(400, new { error = "Failed to read request body" });
+                    return BadRequest("Empty webhook payload - Content-Length is 0");
                 }
+                
+                // Enable buffering to allow multiple reads if needed
+                Request.EnableBuffering();
+                
+                // Use a more robust approach to read the body
+                using var memoryStream = new MemoryStream();
+                await Request.Body.CopyToAsync(memoryStream);
+                
+                // Reset position for potential future reads
+                Request.Body.Position = 0;
+                
+                // Convert to string
+                body = Encoding.UTF8.GetString(memoryStream.ToArray());
+                
+                _logger.LogDebug("Successfully read {ActualBytes} bytes from request body", memoryStream.Length);
 
                 if (string.IsNullOrWhiteSpace(body))
                 {
