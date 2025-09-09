@@ -35,41 +35,81 @@ namespace Lamdat.ADOAutomationTool.Controllers
                 // Log authentication details for debugging
                 _logger.LogDebug("Webhook request authenticated as: {User}", User.Identity?.Name ?? "Anonymous");
                 
-                // Enable buffering to allow multiple reads of the request body
-                Request.EnableBuffering();
+                string body;
                 
-                using (StreamReader reader = new StreamReader(Request.Body, Encoding.UTF8, leaveOpen: true))
+                try
                 {
-                    string body = await reader.ReadToEndAsync();
+                    // Check if there's a content-length header
+                    var contentLength = Request.ContentLength;
+                    _logger.LogDebug("Content-Length header: {ContentLength}", contentLength?.ToString() ?? "null");
                     
-                    // Reset the stream position for potential future reads
-                    Request.Body.Position = 0;
-
-                    if (string.IsNullOrWhiteSpace(body))
+                    // If content length is 0 or null, return early
+                    if (contentLength == 0)
                     {
-                        _logger.LogWarning("Received empty data in web hook from {RemoteIP} for user {User}", 
+                        _logger.LogWarning("Received webhook with Content-Length 0 from {RemoteIP} for user {User}", 
                             HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown",
                             User.Identity?.Name ?? "Anonymous");
-                        return BadRequest("Empty webhook payload");
+                        return BadRequest("Empty webhook payload - Content-Length is 0");
                     }
-
-                    _logger.LogDebug("Webhook received from {RemoteIP} for user {User}, payload length: {Length}", 
-                        HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown", 
-                        User.Identity?.Name ?? "Anonymous",
-                        body.Length);
                     
-                    var err = await _handlerService.HandleWebHook(body);
+                    // Enable buffering to allow multiple reads if needed
+                    Request.EnableBuffering();
+                    
+                    // Use a more robust approach to read the body
+                    using var memoryStream = new MemoryStream();
+                    await Request.Body.CopyToAsync(memoryStream);
+                    
+                    // Reset position for potential future reads
+                    Request.Body.Position = 0;
+                    
+                    // Convert to string
+                    body = Encoding.UTF8.GetString(memoryStream.ToArray());
+                    
+                    _logger.LogDebug("Successfully read {ActualBytes} bytes from request body", memoryStream.Length);
+                }
+                catch (Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException ex) when (ex.Message.Contains("Unexpected end of request content"))
+                {
+                    _logger.LogWarning("Client sent incomplete request content from {RemoteIP} for user {User}. Error: {Error}", 
+                        HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown",
+                        User.Identity?.Name ?? "Anonymous",
+                        ex.Message);
+                    
+                    // Return a specific error for incomplete requests
+                    return StatusCode(400, new { error = "Incomplete request content", details = "Client disconnected or sent malformed content" });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error reading request body from {RemoteIP} for user {User}", 
+                        HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown",
+                        User.Identity?.Name ?? "Anonymous");
+                    
+                    return StatusCode(400, new { error = "Failed to read request body" });
+                }
 
-                    if (err != null)
-                    {
-                        _logger.LogError("Webhook handler error: {Error} for user {User}", err, User.Identity?.Name ?? "Anonymous");
-                        return StatusCode(503, new { error = "Webhook processing failed" });
-                    }
-                    else
-                    {
-                        _logger.LogDebug("Webhook processed successfully for user {User}", User.Identity?.Name ?? "Anonymous");
-                        return Ok(new { status = "success" });
-                    }
+                if (string.IsNullOrWhiteSpace(body))
+                {
+                    _logger.LogWarning("Received empty or whitespace-only data in webhook from {RemoteIP} for user {User}", 
+                        HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown",
+                        User.Identity?.Name ?? "Anonymous");
+                    return BadRequest("Empty webhook payload");
+                }
+
+                _logger.LogDebug("Webhook received from {RemoteIP} for user {User}, payload length: {Length}", 
+                    HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown", 
+                    User.Identity?.Name ?? "Anonymous",
+                    body.Length);
+                
+                var err = await _handlerService.HandleWebHook(body);
+
+                if (err != null)
+                {
+                    _logger.LogError("Webhook handler error: {Error} for user {User}", err, User.Identity?.Name ?? "Anonymous");
+                    return StatusCode(503, new { error = "Webhook processing failed" });
+                }
+                else
+                {
+                    _logger.LogDebug("Webhook processed successfully for user {User}", User.Identity?.Name ?? "Anonymous");
+                    return Ok(new { status = "success" });
                 }
             }
             catch (Exception ex)
@@ -87,7 +127,12 @@ namespace Lamdat.ADOAutomationTool.Controllers
             return Ok(ok);
         }
 
-        
+        // Add a simple test endpoint that requires authentication
+        [HttpGet("test")]
+        public async Task<IActionResult> TestAuth()
+        {
+            return Ok(new { Status = "authenticated", User = User.Identity?.Name });
+        }
     }
 }
 
