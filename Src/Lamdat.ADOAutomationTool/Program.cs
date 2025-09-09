@@ -142,6 +142,75 @@ static string SanitizeForLogging(string input)
     return input.Replace("\n", "").Replace("\r", "");
 }
 
+// Add bad request handling middleware BEFORE authentication
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Microsoft.AspNetCore.Http.BadHttpRequestException ex) when (ex.Message.Contains("Unexpected end of request content"))
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+        var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
+        
+        logger.LogWarning("Client sent incomplete request content from {RemoteIP}. Error: {Error}. Request: {Method} {Path}, Content-Length: {ContentLength}", 
+            sanitizedRemoteIp, 
+            ex.Message,
+            context.Request.Method,
+            context.Request.Path,
+            context.Request.ContentLength?.ToString() ?? "null");
+            
+        // Ensure response hasn't started and return 400 immediately
+        if (!context.Response.HasStarted)
+        {
+            context.Response.StatusCode = 400;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Bad request - incomplete content\",\"details\":\"Request content was incomplete or malformed\"}");
+        }
+        return; // Don't continue to next middleware
+    }
+    catch (Microsoft.AspNetCore.Http.BadHttpRequestException ex)
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+        var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
+        
+        logger.LogWarning("Bad HTTP request from {RemoteIP}: {Error}. Request: {Method} {Path}", 
+            sanitizedRemoteIp, 
+            ex.Message,
+            context.Request.Method,
+            context.Request.Path);
+            
+        // Return 400 for any bad HTTP request
+        if (!context.Response.HasStarted)
+        {
+            context.Response.StatusCode = 400;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Bad request\",\"details\":\"" + SanitizeForLogging(ex.Message) + "\"}");
+        }
+        return; // Don't continue to next middleware
+    }
+    catch (Exception ex)
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+        var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
+        
+        logger.LogError(ex, "Unhandled exception in request pipeline from {RemoteIP}: {Method} {Path}", 
+            sanitizedRemoteIp, context.Request.Method, context.Request.Path);
+        
+        if (!context.Response.HasStarted)
+        {
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Internal server error\"}");
+        }
+    }
+});
+
+// Webhook-specific logging middleware
 app.Use(async (context, next) =>
 {
     if (context.Request.Path.StartsWithSegments("/webhook"))
@@ -186,45 +255,7 @@ app.Use(async (context, next) =>
             }
         }
     }
-    
-    try
-    {
-        await next();
-    }
-    catch (Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException ex) when (ex.Message.Contains("Unexpected end of request content"))
-    {
-        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
-        var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
-        
-        logger.LogWarning("Bad HTTP request from {RemoteIP}: {Error}. Request: {Method} {Path}, Content-Length: {ContentLength}", 
-            sanitizedRemoteIp, 
-            ex.Message,
-            context.Request.Method,
-            context.Request.Path,
-            context.Request.ContentLength?.ToString() ?? "null");
-            
-        // Return a proper HTTP response instead of letting it bubble up
-        context.Response.StatusCode = 400;
-        context.Response.ContentType = "application/json";
-        await context.Response.WriteAsync("{\"error\":\"Bad request - incomplete content\",\"details\":\"Request content was incomplete or malformed\"}");
-    }
-    catch (Exception ex)
-    {
-        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
-        var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
-        
-        logger.LogError(ex, "Unhandled exception in request pipeline from {RemoteIP}: {Method} {Path}", 
-            sanitizedRemoteIp, context.Request.Method, context.Request.Path);
-        
-        if (!context.Response.HasStarted)
-        {
-            context.Response.StatusCode = 500;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync("{\"error\":\"Internal server error\"}");
-        }
-    }
+    await next();
 });
 
 app.UseAuthentication();

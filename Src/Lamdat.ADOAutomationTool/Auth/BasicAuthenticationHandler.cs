@@ -62,7 +62,7 @@ namespace Lamdat.ADOAutomationTool.Auth
 
                 if (!Request.Headers.ContainsKey(_authorizationHeaderName))
                 {
-                    Logger.LogWarning("Authorization header missing for {Method} {Path} from {RemoteIP}", 
+                    Logger.LogDebug("Authorization header missing for {Method} {Path} from {RemoteIP}", 
                         Request.Method, Request.Path, Context.Connection.RemoteIpAddress?.ToString() ?? "Unknown");
                     return AuthenticateResult.Fail("Authorization header missing");
                 }
@@ -70,14 +70,14 @@ namespace Lamdat.ADOAutomationTool.Auth
                 var authorizationHeader = Request.Headers[_authorizationHeaderName].ToString();
                 if (string.IsNullOrWhiteSpace(authorizationHeader))
                 {
-                    Logger.LogWarning("Empty authorization header for {Method} {Path} from {RemoteIP}", 
+                    Logger.LogDebug("Empty authorization header for {Method} {Path} from {RemoteIP}", 
                         Request.Method, Request.Path, Context.Connection.RemoteIpAddress?.ToString() ?? "Unknown");
                     return AuthenticateResult.Fail("Empty authorization header");
                 }
 
                 if (!authorizationHeader.StartsWith(_basicSchemeName + " ", StringComparison.OrdinalIgnoreCase))
                 {
-                    Logger.LogWarning("Invalid authentication scheme. Expected: {ExpectedScheme}, Received: {ReceivedScheme} for {Method} {Path} from {RemoteIP}", 
+                    Logger.LogDebug("Invalid authentication scheme. Expected: {ExpectedScheme}, Received: {ReceivedScheme} for {Method} {Path} from {RemoteIP}", 
                         _basicSchemeName, authorizationHeader.Split(' ').FirstOrDefault(), Request.Method, Request.Path, Context.Connection.RemoteIpAddress?.ToString() ?? "Unknown");
                     return AuthenticateResult.Fail("Invalid authentication scheme");
                 }
@@ -85,7 +85,7 @@ namespace Lamdat.ADOAutomationTool.Auth
                 var encodedCredentials = authorizationHeader.Substring(_basicSchemeName.Length).Trim();
                 if (string.IsNullOrWhiteSpace(encodedCredentials))
                 {
-                    Logger.LogWarning("Empty credentials in authorization header for {Method} {Path} from {RemoteIP}", 
+                    Logger.LogDebug("Empty credentials in authorization header for {Method} {Path} from {RemoteIP}", 
                         Request.Method, Request.Path, Context.Connection.RemoteIpAddress?.ToString() ?? "Unknown");
                     return AuthenticateResult.Fail("Empty credentials");
                 }
