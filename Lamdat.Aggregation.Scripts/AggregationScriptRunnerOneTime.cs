@@ -77,9 +77,9 @@ namespace Lamdat.Aggregation.Scripts
                     ? LastRun
                     : LastRun.ToUniversalTime();
                 var sinceLastRun = sinceLastRunUtc.ToString("yyyy-MM-dd");
-                
-                var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
-                
+
+                //var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
+
                 var changedTasks = new List<WorkItem>();
                 const int taskPageSize = 200; // Azure DevOps default limit
                 int? lastTaskId = null;
@@ -90,7 +90,7 @@ namespace Lamdat.Aggregation.Scripts
                 while (hasMoreTasks)
                 {
                     string changedTasksQuery;
-                    
+
                     if (lastTaskId == null)
                     {
                         // First page - no ID filter needed
@@ -100,7 +100,7 @@ namespace Lamdat.Aggregation.Scripts
                                               FROM WorkItems 
                                               WHERE [System.WorkItemType] = 'Task' 
                                               AND [System.TeamProject] = 'PCLabs'
-                                              AND [System.ChangedDate] >= '{sinceLastRunDate}'                                          
+                                              AND [System.ChangedDate] >= '{sinceLastRun}'                                          
                                               ORDER BY [System.Id]";
                     }
                     else
@@ -112,13 +112,13 @@ namespace Lamdat.Aggregation.Scripts
                                               FROM WorkItems 
                                               WHERE [System.WorkItemType] = 'Task' 
                                               AND [System.TeamProject] = 'PCLabs'
-                                              AND [System.ChangedDate] >= '{sinceLastRunDate}'
+                                              AND [System.ChangedDate] >= '{sinceLastRun}'
                                               AND [System.Id] > {lastTaskId}                                          
                                               ORDER BY [System.Id]";
                     }
 
                     var pageResults = await Client.QueryWorkItemsByWiql(changedTasksQuery, taskPageSize);
-                    
+
                     if (pageResults.Count == 0)
                     {
                         hasMoreTasks = false;
@@ -135,9 +135,9 @@ namespace Lamdat.Aggregation.Scripts
 
                         changedTasks.AddRange(filteredPageResults);
                         lastTaskId = pageResults.Last().Id;
-                        
+
                         Logger.Information($"Fetched page with {pageResults.Count} tasks (filtered to {filteredPageResults.Count}), last ID: {lastTaskId}, total so far: {changedTasks.Count}");
-                        
+
                         // If we got fewer results than the page size, we've reached the end
                         if (pageResults.Count < taskPageSize)
                         {
@@ -161,7 +161,7 @@ namespace Lamdat.Aggregation.Scripts
                 while (hasMoreFeatures)
                 {
                     string changedFeaturesQuery;
-                    
+
                     if (lastFeatureId == null)
                     {
                         // First page - no ID filter needed
@@ -185,7 +185,7 @@ namespace Lamdat.Aggregation.Scripts
                     }
 
                     var pageResults = await Client.QueryWorkItemsByWiql(changedFeaturesQuery, pageSize);
-                    
+
                     if (pageResults.Count == 0)
                     {
                         hasMoreFeatures = false;
@@ -202,9 +202,9 @@ namespace Lamdat.Aggregation.Scripts
 
                         changedFeatures.AddRange(filteredPageResults);
                         lastFeatureId = pageResults.Last().Id;
-                        
+
                         Logger.Information($"Fetched page with {pageResults.Count} features (filtered to {filteredPageResults.Count}), last ID: {lastFeatureId}, total so far: {changedFeatures.Count}");
-                        
+
                         // If we got fewer results than the page size, we've reached the end
                         if (pageResults.Count < pageSize)
                         {
@@ -706,7 +706,7 @@ namespace Lamdat.Aggregation.Scripts
                         var taskCompletedWork = pbi.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
                         var taskCompletedDays = Math.Round(taskCompletedWork / HOURS_PER_DAY, 2);
 
-                        aggregatedData["TotalCompletedWork"] += taskCompletedDays;
+                        aggregatedData["TotalCompletedWork"] += taskCompletedWork;
 
                         // Map task activity to discipline for task completed work
                         var activity = pbi.GetField<string>("Microsoft.VSTS.Common.Activity") ?? "";
@@ -749,15 +749,15 @@ namespace Lamdat.Aggregation.Scripts
                     else
                     {
                         // Handle PBI/Bug/Glitch items (aggregate their already calculated completed work fields)
-                        aggregatedData["TotalCompletedWork"] += pbi.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
-                        aggregatedData["DevelopmentCompletedWork"] += pbi.GetField<double?>("Labs.DevCompletedWork") ?? 0;
-                        aggregatedData["QACompletedWork"] += pbi.GetField<double?>("Labs.QACompletedWork") ?? 0;
-                        aggregatedData["POCompletedWork"] += pbi.GetField<double?>("Custom.POCompletedWork") ?? 0;
-                        aggregatedData["AdminCompletedWork"] += pbi.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
-                        aggregatedData["OthersCompletedWork"] += pbi.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
-                        aggregatedData["InfraCompletedWork"] += pbi.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
-                        aggregatedData["CapabilitiesCompletedWork"] += pbi.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
-                        aggregatedData["UnProductiveCompletedWork"] += pbi.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
+                        aggregatedData["TotalCompletedWork"] += Math.Round((pbi.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["DevelopmentCompletedWork"] += Math.Round((pbi.GetField<double?>("Labs.DevCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["QACompletedWork"] += Math.Round((pbi.GetField<double?>("Labs.QACompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["POCompletedWork"] += Math.Round((pbi.GetField<double?>("Custom.POCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["AdminCompletedWork"] += Math.Round((pbi.GetField<double?>("Custom.AdminCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["OthersCompletedWork"] += Math.Round((pbi.GetField<double?>("Custom.OthersCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["InfraCompletedWork"] += Math.Round((pbi.GetField<double?>("Custom.InfraCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["CapabilitiesCompletedWork"] += Math.Round((pbi.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["UnProductiveCompletedWork"] += Math.Round((pbi.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
                     }
                 }
 
@@ -908,8 +908,8 @@ namespace Lamdat.Aggregation.Scripts
 
                     if (completedWork > 0)
                     {
-                        var completedDays = Math.Round(completedWork / HOURS_PER_DAY, 2);
-                        aggregatedData["TotalCompletedWork"] += completedDays;
+                        //var completedDays = Math.Round(completedWork / HOURS_PER_DAY, 2);
+                        aggregatedData["TotalCompletedWork"] += completedWork;
 
                         // Map activity to discipline
                         if (disciplineMappings.TryGetValue(activity, out var discipline))
@@ -917,28 +917,28 @@ namespace Lamdat.Aggregation.Scripts
                             switch (discipline)
                             {
                                 case "Development":
-                                    aggregatedData["DevelopmentCompletedWork"] += completedDays;
+                                    aggregatedData["DevelopmentCompletedWork"] += completedWork;
                                     break;
                                 case "QA":
-                                    aggregatedData["QACompletedWork"] += completedDays;
+                                    aggregatedData["QACompletedWork"] += completedWork;
                                     break;
                                 case "PO":
-                                    aggregatedData["POCompletedWork"] += completedDays;
+                                    aggregatedData["POCompletedWork"] += completedWork;
                                     break;
                                 case "Admin":
-                                    aggregatedData["AdminCompletedWork"] += completedDays;
+                                    aggregatedData["AdminCompletedWork"] += completedWork;
                                     break;
                                 case "Others":
-                                    aggregatedData["OthersCompletedWork"] += completedDays;
+                                    aggregatedData["OthersCompletedWork"] += completedWork;
                                     break;
                                 case "Infra":
-                                    aggregatedData["InfraCompletedWork"] += completedDays;
+                                    aggregatedData["InfraCompletedWork"] += completedWork;
                                     break;
                                 case "Capabilities":
-                                    aggregatedData["CapabilitiesCompletedWork"] += completedDays;
+                                    aggregatedData["CapabilitiesCompletedWork"] += completedWork;
                                     break;
                                 case "UnProductive":
-                                    aggregatedData["UnProductiveCompletedWork"] += completedDays;
+                                    aggregatedData["UnProductiveCompletedWork"] += completedWork;
                                     break;
 
                             }
@@ -946,7 +946,7 @@ namespace Lamdat.Aggregation.Scripts
                         else
                         {
                             // Unknown activity goes to Others
-                            aggregatedData["OthersCompletedWork"] += completedDays;
+                            aggregatedData["OthersCompletedWork"] += completedWork;
                         }
                     }
                 }
@@ -1184,7 +1184,7 @@ namespace Lamdat.Aggregation.Scripts
                 while (hasMoreRemovedWorkItems)
                 {
                     string removedWorkItemsQuery;
-                    
+
                     if (lastRemovedWorkItemId == null)
                     {
                         // First page - no ID filter needed
@@ -1210,7 +1210,7 @@ namespace Lamdat.Aggregation.Scripts
                     }
 
                     var pageResults = await client.QueryWorkItemsByWiql(removedWorkItemsQuery, checkPageSize);
-                    
+
                     if (pageResults.Count == 0)
                     {
                         hasMoreRemovedWorkItems = false;
@@ -1227,9 +1227,9 @@ namespace Lamdat.Aggregation.Scripts
 
                         removedWorkItemsCount += filteredPageResults.Count;
                         lastRemovedWorkItemId = pageResults.Last().Id;
-                        
+
                         Logger.Debug($"Checked page with {pageResults.Count} removed work items (filtered to {filteredPageResults.Count}), last ID: {lastRemovedWorkItemId}, total count so far: {removedWorkItemsCount}");
-                        
+
                         // If we got fewer results than the page size, we've reached the end
                         if (pageResults.Count < checkPageSize)
                         {
@@ -1261,7 +1261,7 @@ namespace Lamdat.Aggregation.Scripts
                 while (hasMoreRemovedWorkItems)
                 {
                     string removedWorkItemsQuery;
-                    
+
                     if (lastRemovedWorkItemId == null)
                     {
                         // First page - no ID filter needed
@@ -1287,7 +1287,7 @@ namespace Lamdat.Aggregation.Scripts
                     }
 
                     var pageResults = await client.QueryWorkItemsByWiql(removedWorkItemsQuery, removedPageSize);
-                    
+
                     if (pageResults.Count == 0)
                     {
                         hasMoreRemovedWorkItems = false;
@@ -1304,9 +1304,9 @@ namespace Lamdat.Aggregation.Scripts
 
                         removedWorkItems.AddRange(filteredPageResults);
                         lastRemovedWorkItemId = pageResults.Last().Id;
-                        
+
                         Logger.Debug($"Fetched page with {pageResults.Count} removed work items (filtered to {filteredPageResults.Count}), last ID: {lastRemovedWorkItemId}, total so far: {removedWorkItems.Count}");
-                        
+
                         // If we got fewer results than the page size, we've reached the end
                         if (pageResults.Count < removedPageSize)
                         {
@@ -1368,6 +1368,5 @@ namespace Lamdat.Aggregation.Scripts
                 }
             }
         }
-
     }
 }

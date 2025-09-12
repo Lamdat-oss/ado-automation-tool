@@ -69,7 +69,7 @@ try
     // Run aggregation script
     Log.Information("Starting aggregation script execution...");
     var scriptRunId = Guid.NewGuid().ToString();
-    var lastRun = DateTime.Now.AddHours(-1); // Default to 7 days ago
+    var lastRun = DateTime.Now.AddMinutes(-1); // Default to 7 days ago
     
     using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds((int)settings.ScheduledScriptExecutionTimeoutSeconds));
     
