@@ -706,7 +706,7 @@ namespace Lamdat.Aggregation.Scripts
                         var taskCompletedWork = pbi.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
                         var taskCompletedDays = Math.Round(taskCompletedWork / HOURS_PER_DAY, 2);
 
-                        aggregatedData["TotalCompletedWork"] += taskCompletedWork;
+                        aggregatedData["TotalCompletedWork"] += taskCompletedDays;
 
                         // Map task activity to discipline for task completed work
                         var activity = pbi.GetField<string>("Microsoft.VSTS.Common.Activity") ?? "";
@@ -775,6 +775,7 @@ namespace Lamdat.Aggregation.Scripts
             // Calculate Epic completed work from all descendant tasks
             async Task<Dictionary<string, double>> CalculateEpicCompletedWorkFromAllDescendants(WorkItem epicItem, Dictionary<string, string> disciplineMappings, IAzureDevOpsClient client)
             {
+                const int HOURS_PER_DAY = 8;
                 var aggregatedData = new Dictionary<string, double>
                 {
                     ["TotalCompletedWork"] = 0,
@@ -796,34 +797,88 @@ namespace Lamdat.Aggregation.Scripts
                                AND [Source].[System.TeamProject] = 'PCLabs'
                                AND [Target].[System.TeamProject] = 'PCLabs'
                                AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                               AND [Target].[System.WorkItemType] = 'Feature'                              
+                               AND [Target].[System.WorkItemType] in ('Task','Feature')                             
                                AND [Target].[System.Id] <> {epicItem.Id}";
 
-                var childFeatures = await client.QueryWorkItemsByWiql(childFeaturesQuery);
+                var children = await client.QueryWorkItemsByWiql(childFeaturesQuery);
 
                 // Step 2: For each Feature, get its PBI/Bug children
-                foreach (var feature in childFeatures)
+                foreach (var item in children)
                 {
                     // Additional safety check to ensure we don't include the epic itself
-                    if (feature.Id == epicItem.Id) continue;
-
+                    if (item.Id == epicItem.Id) continue;
+                   
                     // Skip features that are in "Removed" state
-                    var featureState = feature.GetField<string>("System.State");
-                    if (string.Equals(featureState, "Removed", StringComparison.OrdinalIgnoreCase))
+                    var itemState = item.GetField<string>("System.State");
+                    if (string.Equals(itemState, "Removed", StringComparison.OrdinalIgnoreCase))
                     {
-                        Logger.Debug($"Skipping feature child {feature.Id} is in 'Removed' state");
+                        Logger.Debug($"Skipping feature child {item.Id} is in 'Removed' state");
                         continue;
                     }
 
-                    aggregatedData["TotalCompletedWork"] += feature.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
-                    aggregatedData["DevelopmentCompletedWork"] += feature.GetField<double?>("Labs.DevCompletedWork") ?? 0;
-                    aggregatedData["QACompletedWork"] += feature.GetField<double?>("Labs.QACompletedWork") ?? 0;
-                    aggregatedData["POCompletedWork"] += feature.GetField<double?>("Custom.POCompletedWork") ?? 0;
-                    aggregatedData["AdminCompletedWork"] += feature.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
-                    aggregatedData["OthersCompletedWork"] += feature.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
-                    aggregatedData["InfraCompletedWork"] += feature.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
-                    aggregatedData["CapabilitiesCompletedWork"] += feature.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
-                    aggregatedData["UnProductiveCompletedWork"] += feature.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
+                    if (item.WorkItemType == "Task")
+                    {
+                        var taskCompletedWork = item.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
+                        var taskCompletedDays = Math.Round(taskCompletedWork / HOURS_PER_DAY, 2);
+
+                        aggregatedData["TotalCompletedWork"] += taskCompletedDays;
+
+                        // Map task activity to discipline for task completed work
+                        var activity = item.GetField<string>("Microsoft.VSTS.Common.Activity") ?? "";
+                        if (disciplineMappings.TryGetValue(activity, out var discipline))
+                        {
+                            switch (discipline)
+                            {
+                                case "Development":
+                                    aggregatedData["DevelopmentCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "QA":
+                                    aggregatedData["QACompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "PO":
+                                    aggregatedData["POCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "Admin":
+                                    aggregatedData["AdminCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "Others":
+                                    aggregatedData["OthersCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "Infra":
+                                    aggregatedData["InfraCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "Capabilities":
+                                    aggregatedData["CapabilitiesCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "UnProductive":
+                                    aggregatedData["UnProductiveCompletedWork"] += taskCompletedDays;
+                                    break;
+                            }
+                        }
+                        else
+                        {
+                            // Unknown activity goes to Others
+                            aggregatedData["OthersCompletedWork"] += taskCompletedDays;
+                        }
+                    }
+                    else
+                    {
+                        // Handle feature (aggregate their already calculated completed work fields)
+
+                        aggregatedData["TotalCompletedWork"] += item.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
+                        aggregatedData["DevelopmentCompletedWork"] += item.GetField<double?>("Labs.DevCompletedWork") ?? 0;
+                        aggregatedData["QACompletedWork"] += item.GetField<double?>("Labs.QACompletedWork") ?? 0;
+                        aggregatedData["POCompletedWork"] += item.GetField<double?>("Custom.POCompletedWork") ?? 0;
+                        aggregatedData["AdminCompletedWork"] += item.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
+                        aggregatedData["OthersCompletedWork"] += item.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
+                        aggregatedData["InfraCompletedWork"] += item.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
+                        aggregatedData["CapabilitiesCompletedWork"] += item.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
+                        aggregatedData["UnProductiveCompletedWork"] += item.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
+                    }
+
+                 
+
+
 
                 }
 

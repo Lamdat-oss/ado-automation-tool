@@ -72,54 +72,149 @@ namespace Lamdat.Aggregation.Scripts
     };
 
                 // Step 1: Find all tasks that have changed since last run (for bottom-up aggregation)
-                // Fix: Use proper WIQL date format (date only, no time) and > 0 for numeric field instead of IS NOT EMPTY
-                // Option 1: Ensure LastRun is treated as UTC for comparison
+                // Use paging to handle large result sets
                 var sinceLastRunUtc = LastRun.Kind == DateTimeKind.Utc
                     ? LastRun
                     : LastRun.ToUniversalTime();
                 var sinceLastRun = sinceLastRunUtc.ToString("yyyy-MM-dd");
 
-                // Option 2: Add ChangedDate to query results and filter in memory for precise UTC comparison
-                var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
-                var changedTasksQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
-                                          [Microsoft.VSTS.Scheduling.CompletedWork], [Microsoft.VSTS.Common.Activity], 
-                                          [System.ChangedDate]
-                                          FROM WorkItems 
-                                          WHERE [System.WorkItemType] = 'Task' 
-                                          AND [System.TeamProject] = 'PCLabs'
-                                          AND [System.ChangedDate] >= '{sinceLastRunDate}' 
-                                          
-                                          ORDER BY [System.ChangedDate]";
+                //var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
 
+                var changedTasks = new List<WorkItem>();
+                const int taskPageSize = 200; // Azure DevOps default limit
+                int? lastTaskId = null;
+                bool hasMoreTasks = true;
 
-                var allChangedTasks = await Client.QueryWorkItemsByWiql(changedTasksQuery);
+                Logger.Information("Fetching changed tasks with paging to handle large result sets");
 
-                // Filter with precise UTC comparison
-                var changedTasks = allChangedTasks.Where(task =>
+                while (hasMoreTasks)
                 {
-                    var changedDate = task.GetField<DateTime?>("System.ChangedDate");
-                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
-                }).ToList();
+                    string changedTasksQuery;
 
+                    if (lastTaskId == null)
+                    {
+                        // First page - no ID filter needed
+                        changedTasksQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
+                                              [Microsoft.VSTS.Scheduling.CompletedWork], [Microsoft.VSTS.Common.Activity], 
+                                              [System.ChangedDate]
+                                              FROM WorkItems 
+                                              WHERE [System.WorkItemType] = 'Task' 
+                                              AND [System.TeamProject] = 'PCLabs'
+                                              AND [System.ChangedDate] >= '{sinceLastRun}'                                          
+                                              ORDER BY [System.Id]";
+                    }
+                    else
+                    {
+                        // Subsequent pages - filter by ID to continue from where we left off
+                        changedTasksQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
+                                              [Microsoft.VSTS.Scheduling.CompletedWork], [Microsoft.VSTS.Common.Activity], 
+                                              [System.ChangedDate]
+                                              FROM WorkItems 
+                                              WHERE [System.WorkItemType] = 'Task' 
+                                              AND [System.TeamProject] = 'PCLabs'
+                                              AND [System.ChangedDate] >= '{sinceLastRun}'
+                                              AND [System.Id] > {lastTaskId}                                          
+                                              ORDER BY [System.Id]";
+                    }
+
+                    var pageResults = await Client.QueryWorkItemsByWiql(changedTasksQuery, taskPageSize);
+
+                    if (pageResults.Count == 0)
+                    {
+                        hasMoreTasks = false;
+                        Logger.Debug($"No more tasks found, paging complete. Total tasks fetched: {changedTasks.Count}");
+                    }
+                    else
+                    {
+                        // Filter with precise UTC comparison for this page
+                        var filteredPageResults = pageResults.Where(task =>
+                        {
+                            var changedDate = task.GetField<DateTime?>("System.ChangedDate");
+                            return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                        }).ToList();
+
+                        changedTasks.AddRange(filteredPageResults);
+                        lastTaskId = pageResults.Last().Id;
+
+                        Logger.Information($"Fetched page with {pageResults.Count} tasks (filtered to {filteredPageResults.Count}), last ID: {lastTaskId}, total so far: {changedTasks.Count}");
+
+                        // If we got fewer results than the page size, we've reached the end
+                        if (pageResults.Count < taskPageSize)
+                        {
+                            hasMoreTasks = false;
+                            Logger.Debug($"Received fewer results than page size ({pageResults.Count} < {taskPageSize}), paging complete");
+                        }
+                    }
+                }
 
                 Logger.Information($"Found {changedTasks.Count} changed tasks with completed work since last run");
 
                 // Step 2: Find all features that have changed since last run (for top-down aggregation)
-                var changedFeaturesQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType]
-                                 FROM WorkItems 
-                                 WHERE [System.WorkItemType] = 'Feature' 
-                                 AND [System.TeamProject] = 'PCLabs'
-                                 AND [System.ChangedDate] >= '{sinceLastRun}'                                  
-                                 ORDER BY [System.ChangedDate]";
+                // Use paging to handle large result sets
+                var changedFeatures = new List<WorkItem>();
+                const int pageSize = 200; // Azure DevOps default limit
+                int? lastFeatureId = null;
+                bool hasMoreFeatures = true;
 
-                var changedFeaturesRet = await Client.QueryWorkItemsByWiql(changedFeaturesQuery);
+                Logger.Information("Fetching changed features with paging to handle large result sets");
 
-                var changedFeatures = changedFeaturesRet.Where(feature =>
+                while (hasMoreFeatures)
                 {
-                    var changedDate = feature.GetField<DateTime?>("System.ChangedDate");
-                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
-                }).ToList();
+                    string changedFeaturesQuery;
 
+                    if (lastFeatureId == null)
+                    {
+                        // First page - no ID filter needed
+                        changedFeaturesQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
+                                     FROM WorkItems 
+                                     WHERE [System.WorkItemType] = 'Feature' 
+                                     AND [System.TeamProject] = 'PCLabs'
+                                     AND [System.ChangedDate] >= '{sinceLastRun}'                                  
+                                     ORDER BY [System.Id]";
+                    }
+                    else
+                    {
+                        // Subsequent pages - filter by ID to continue from where we left off
+                        changedFeaturesQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
+                                     FROM WorkItems 
+                                     WHERE [System.WorkItemType] = 'Feature' 
+                                     AND [System.TeamProject] = 'PCLabs'
+                                     AND [System.ChangedDate] >= '{sinceLastRun}'
+                                     AND [System.Id] > {lastFeatureId}                                  
+                                     ORDER BY [System.Id]";
+                    }
+
+                    var pageResults = await Client.QueryWorkItemsByWiql(changedFeaturesQuery, pageSize);
+
+                    if (pageResults.Count == 0)
+                    {
+                        hasMoreFeatures = false;
+                        Logger.Debug($"No more features found, paging complete. Total features fetched: {changedFeatures.Count}");
+                    }
+                    else
+                    {
+                        // Filter with precise UTC comparison for this page
+                        var filteredPageResults = pageResults.Where(feature =>
+                        {
+                            var changedDate = feature.GetField<DateTime?>("System.ChangedDate");
+                            return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                        }).ToList();
+
+                        changedFeatures.AddRange(filteredPageResults);
+                        lastFeatureId = pageResults.Last().Id;
+
+                        Logger.Information($"Fetched page with {pageResults.Count} features (filtered to {filteredPageResults.Count}), last ID: {lastFeatureId}, total so far: {changedFeatures.Count}");
+
+                        // If we got fewer results than the page size, we've reached the end
+                        if (pageResults.Count < pageSize)
+                        {
+                            hasMoreFeatures = false;
+                            Logger.Debug($"Received fewer results than page size ({pageResults.Count} < {pageSize}), paging complete");
+                        }
+                    }
+                }
+
+                var changedFeaturesRet = changedFeatures;
 
                 Logger.Information($"Found {changedFeatures.Count} changed features since last run");
 
@@ -654,15 +749,15 @@ namespace Lamdat.Aggregation.Scripts
                     else
                     {
                         // Handle PBI/Bug/Glitch items (aggregate their already calculated completed work fields)
-                        aggregatedData["TotalCompletedWork"] += pbi.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
-                        aggregatedData["DevelopmentCompletedWork"] += pbi.GetField<double?>("Labs.DevCompletedWork") ?? 0;
-                        aggregatedData["QACompletedWork"] += pbi.GetField<double?>("Labs.QACompletedWork") ?? 0;
-                        aggregatedData["POCompletedWork"] += pbi.GetField<double?>("Custom.POCompletedWork") ?? 0;
-                        aggregatedData["AdminCompletedWork"] += pbi.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
-                        aggregatedData["OthersCompletedWork"] += pbi.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
-                        aggregatedData["InfraCompletedWork"] += pbi.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
-                        aggregatedData["CapabilitiesCompletedWork"] += pbi.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
-                        aggregatedData["UnProductiveCompletedWork"] += pbi.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
+                        aggregatedData["TotalCompletedWork"] += Math.Round((pbi.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["DevelopmentCompletedWork"] += Math.Round((pbi.GetField<double?>("Labs.DevCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["QACompletedWork"] += Math.Round((pbi.GetField<double?>("Labs.QACompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["POCompletedWork"] += Math.Round((pbi.GetField<double?>("Custom.POCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["AdminCompletedWork"] += Math.Round((pbi.GetField<double?>("Custom.AdminCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["OthersCompletedWork"] += Math.Round((pbi.GetField<double?>("Custom.OthersCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["InfraCompletedWork"] += Math.Round((pbi.GetField<double?>("Custom.InfraCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["CapabilitiesCompletedWork"] += Math.Round((pbi.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
+                        aggregatedData["UnProductiveCompletedWork"] += Math.Round((pbi.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0) / HOURS_PER_DAY, 2);
                     }
                 }
 
@@ -680,6 +775,7 @@ namespace Lamdat.Aggregation.Scripts
             // Calculate Epic completed work from all descendant tasks
             async Task<Dictionary<string, double>> CalculateEpicCompletedWorkFromAllDescendants(WorkItem epicItem, Dictionary<string, string> disciplineMappings, IAzureDevOpsClient client)
             {
+                const int HOURS_PER_DAY = 8;
                 var aggregatedData = new Dictionary<string, double>
                 {
                     ["TotalCompletedWork"] = 0,
@@ -701,34 +797,88 @@ namespace Lamdat.Aggregation.Scripts
                                AND [Source].[System.TeamProject] = 'PCLabs'
                                AND [Target].[System.TeamProject] = 'PCLabs'
                                AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                               AND [Target].[System.WorkItemType] = 'Feature'                              
+                               AND [Target].[System.WorkItemType] in ('Task','Feature')                             
                                AND [Target].[System.Id] <> {epicItem.Id}";
 
-                var childFeatures = await client.QueryWorkItemsByWiql(childFeaturesQuery);
+                var children = await client.QueryWorkItemsByWiql(childFeaturesQuery);
 
                 // Step 2: For each Feature, get its PBI/Bug children
-                foreach (var feature in childFeatures)
+                foreach (var item in children)
                 {
                     // Additional safety check to ensure we don't include the epic itself
-                    if (feature.Id == epicItem.Id) continue;
+                    if (item.Id == epicItem.Id) continue;
 
                     // Skip features that are in "Removed" state
-                    var featureState = feature.GetField<string>("System.State");
-                    if (string.Equals(featureState, "Removed", StringComparison.OrdinalIgnoreCase))
+                    var itemState = item.GetField<string>("System.State");
+                    if (string.Equals(itemState, "Removed", StringComparison.OrdinalIgnoreCase))
                     {
-                        Logger.Debug($"Skipping feature child {feature.Id} is in 'Removed' state");
+                        Logger.Debug($"Skipping feature child {item.Id} is in 'Removed' state");
                         continue;
                     }
 
-                    aggregatedData["TotalCompletedWork"] += feature.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
-                    aggregatedData["DevelopmentCompletedWork"] += feature.GetField<double?>("Labs.DevCompletedWork") ?? 0;
-                    aggregatedData["QACompletedWork"] += feature.GetField<double?>("Labs.QACompletedWork") ?? 0;
-                    aggregatedData["POCompletedWork"] += feature.GetField<double?>("Custom.POCompletedWork") ?? 0;
-                    aggregatedData["AdminCompletedWork"] += feature.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
-                    aggregatedData["OthersCompletedWork"] += feature.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
-                    aggregatedData["InfraCompletedWork"] += feature.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
-                    aggregatedData["CapabilitiesCompletedWork"] += feature.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
-                    aggregatedData["UnProductiveCompletedWork"] += feature.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
+                    if (item.WorkItemType == "Task")
+                    {
+                        var taskCompletedWork = item.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
+                        var taskCompletedDays = Math.Round(taskCompletedWork / HOURS_PER_DAY, 2);
+
+                        aggregatedData["TotalCompletedWork"] += taskCompletedDays;
+
+                        // Map task activity to discipline for task completed work
+                        var activity = item.GetField<string>("Microsoft.VSTS.Common.Activity") ?? "";
+                        if (disciplineMappings.TryGetValue(activity, out var discipline))
+                        {
+                            switch (discipline)
+                            {
+                                case "Development":
+                                    aggregatedData["DevelopmentCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "QA":
+                                    aggregatedData["QACompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "PO":
+                                    aggregatedData["POCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "Admin":
+                                    aggregatedData["AdminCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "Others":
+                                    aggregatedData["OthersCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "Infra":
+                                    aggregatedData["InfraCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "Capabilities":
+                                    aggregatedData["CapabilitiesCompletedWork"] += taskCompletedDays;
+                                    break;
+                                case "UnProductive":
+                                    aggregatedData["UnProductiveCompletedWork"] += taskCompletedDays;
+                                    break;
+                            }
+                        }
+                        else
+                        {
+                            // Unknown activity goes to Others
+                            aggregatedData["OthersCompletedWork"] += taskCompletedDays;
+                        }
+                    }
+                    else
+                    {
+                        // Handle feature (aggregate their already calculated completed work fields)
+
+                        aggregatedData["TotalCompletedWork"] += item.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
+                        aggregatedData["DevelopmentCompletedWork"] += item.GetField<double?>("Labs.DevCompletedWork") ?? 0;
+                        aggregatedData["QACompletedWork"] += item.GetField<double?>("Labs.QACompletedWork") ?? 0;
+                        aggregatedData["POCompletedWork"] += item.GetField<double?>("Custom.POCompletedWork") ?? 0;
+                        aggregatedData["AdminCompletedWork"] += item.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
+                        aggregatedData["OthersCompletedWork"] += item.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
+                        aggregatedData["InfraCompletedWork"] += item.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
+                        aggregatedData["CapabilitiesCompletedWork"] += item.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
+                        aggregatedData["UnProductiveCompletedWork"] += item.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
+                    }
+
+
+
+
 
                 }
 
@@ -813,8 +963,8 @@ namespace Lamdat.Aggregation.Scripts
 
                     if (completedWork > 0)
                     {
-                        var completedDays = Math.Round(completedWork / HOURS_PER_DAY, 2);
-                        aggregatedData["TotalCompletedWork"] += completedDays;
+                        //var completedDays = Math.Round(completedWork / HOURS_PER_DAY, 2);
+                        aggregatedData["TotalCompletedWork"] += completedWork;
 
                         // Map activity to discipline
                         if (disciplineMappings.TryGetValue(activity, out var discipline))
@@ -822,28 +972,28 @@ namespace Lamdat.Aggregation.Scripts
                             switch (discipline)
                             {
                                 case "Development":
-                                    aggregatedData["DevelopmentCompletedWork"] += completedDays;
+                                    aggregatedData["DevelopmentCompletedWork"] += completedWork;
                                     break;
                                 case "QA":
-                                    aggregatedData["QACompletedWork"] += completedDays;
+                                    aggregatedData["QACompletedWork"] += completedWork;
                                     break;
                                 case "PO":
-                                    aggregatedData["POCompletedWork"] += completedDays;
+                                    aggregatedData["POCompletedWork"] += completedWork;
                                     break;
                                 case "Admin":
-                                    aggregatedData["AdminCompletedWork"] += completedDays;
+                                    aggregatedData["AdminCompletedWork"] += completedWork;
                                     break;
                                 case "Others":
-                                    aggregatedData["OthersCompletedWork"] += completedDays;
+                                    aggregatedData["OthersCompletedWork"] += completedWork;
                                     break;
                                 case "Infra":
-                                    aggregatedData["InfraCompletedWork"] += completedDays;
+                                    aggregatedData["InfraCompletedWork"] += completedWork;
                                     break;
                                 case "Capabilities":
-                                    aggregatedData["CapabilitiesCompletedWork"] += completedDays;
+                                    aggregatedData["CapabilitiesCompletedWork"] += completedWork;
                                     break;
                                 case "UnProductive":
-                                    aggregatedData["UnProductiveCompletedWork"] += completedDays;
+                                    aggregatedData["UnProductiveCompletedWork"] += completedWork;
                                     break;
 
                             }
@@ -851,7 +1001,7 @@ namespace Lamdat.Aggregation.Scripts
                         else
                         {
                             // Unknown activity goes to Others
-                            aggregatedData["OthersCompletedWork"] += completedDays;
+                            aggregatedData["OthersCompletedWork"] += completedWork;
                         }
                     }
                 }
@@ -948,7 +1098,7 @@ namespace Lamdat.Aggregation.Scripts
                                         AND [Source].[System.TeamProject] = 'PCLabs'
                                         AND [Target].[System.TeamProject] = 'PCLabs'
                                         AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
-                                      
+                                     
                                         AND [Target].[System.WorkItemType] = 'Feature'";
 
                         var featureParents = await client.QueryWorkItemsByWiql(featureParentsQuery);
@@ -1078,25 +1228,74 @@ namespace Lamdat.Aggregation.Scripts
 
                 var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
 
-                // Query for all work items in "Removed" state that have changed since last run
-                var removedWorkItemsQuery = $@"SELECT [System.Id], [System.ChangedDate]
-                                             FROM WorkItems 
-                                             WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
-                                             AND [System.TeamProject] = 'PCLabs'
-                                             AND [System.State] = 'Removed'
-                                             AND [System.ChangedDate] >= '{sinceLastRunDate}'";
+                // Use paging to handle large result sets of removed work items (for count check)
+                var removedWorkItemsCount = 0;
+                const int checkPageSize = 200; // Azure DevOps default limit
+                int? lastRemovedWorkItemId = null;
+                bool hasMoreRemovedWorkItems = true;
 
-                var allRemovedWorkItems = await client.QueryWorkItemsByWiql(removedWorkItemsQuery);
+                Logger.Debug("Checking removed work items with paging for early exit decision");
 
-                // Filter with precise UTC comparison
-                var removedWorkItems = allRemovedWorkItems.Where(item =>
+                while (hasMoreRemovedWorkItems)
                 {
-                    var changedDate = item.GetField<DateTime?>("System.ChangedDate");
-                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
-                }).ToList();
+                    string removedWorkItemsQuery;
 
-                Logger.Debug($"Found {removedWorkItems.Count} work items in 'Removed' state for early exit check");
-                return removedWorkItems.Count;
+                    if (lastRemovedWorkItemId == null)
+                    {
+                        // First page - no ID filter needed
+                        removedWorkItemsQuery = $@"SELECT [System.Id], [System.ChangedDate]
+                                                 FROM WorkItems 
+                                                 WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
+                                                 AND [System.TeamProject] = 'PCLabs'
+                                                 AND [System.State] = 'Removed'
+                                                 AND [System.ChangedDate] >= '{sinceLastRunDate}'
+                                                 ORDER BY [System.Id]";
+                    }
+                    else
+                    {
+                        // Subsequent pages - filter by ID to continue from where we left off
+                        removedWorkItemsQuery = $@"SELECT [System.Id], [System.ChangedDate]
+                                                 FROM WorkItems 
+                                                 WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
+                                                 AND [System.TeamProject] = 'PCLabs'
+                                                 AND [System.State] = 'Removed'
+                                                 AND [System.ChangedDate] >= '{sinceLastRunDate}'
+                                                 AND [System.Id] > {lastRemovedWorkItemId}
+                                                 ORDER BY [System.Id]";
+                    }
+
+                    var pageResults = await client.QueryWorkItemsByWiql(removedWorkItemsQuery, checkPageSize);
+
+                    if (pageResults.Count == 0)
+                    {
+                        hasMoreRemovedWorkItems = false;
+                        Logger.Debug($"No more removed work items found for check, paging complete. Total count: {removedWorkItemsCount}");
+                    }
+                    else
+                    {
+                        // Filter with precise UTC comparison for this page
+                        var filteredPageResults = pageResults.Where(item =>
+                        {
+                            var changedDate = item.GetField<DateTime?>("System.ChangedDate");
+                            return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                        }).ToList();
+
+                        removedWorkItemsCount += filteredPageResults.Count;
+                        lastRemovedWorkItemId = pageResults.Last().Id;
+
+                        Logger.Debug($"Checked page with {pageResults.Count} removed work items (filtered to {filteredPageResults.Count}), last ID: {lastRemovedWorkItemId}, total count so far: {removedWorkItemsCount}");
+
+                        // If we got fewer results than the page size, we've reached the end
+                        if (pageResults.Count < checkPageSize)
+                        {
+                            hasMoreRemovedWorkItems = false;
+                            Logger.Debug($"Received fewer results than page size ({pageResults.Count} < {checkPageSize}), check paging complete");
+                        }
+                    }
+                }
+
+                Logger.Debug($"Found {removedWorkItemsCount} work items in 'Removed' state for early exit check");
+                return removedWorkItemsCount;
             }
 
             // Add work items in "Removed" state to affected collections for parent recalculation
@@ -1106,23 +1305,71 @@ namespace Lamdat.Aggregation.Scripts
 
                 var sinceLastRunDate = LastRun.Date.ToString("yyyy-MM-dd");
 
-                // Query for all work items in "Removed" state that have changed since last run
-                var removedWorkItemsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
-                                             FROM WorkItems 
-                                             WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
-                                             AND [System.TeamProject] = 'PCLabs'
-                                             AND [System.State] = 'Removed'
-                                             AND [System.ChangedDate] >= '{sinceLastRunDate}'
-                                             ORDER BY [System.ChangedDate]";
+                // Use paging to handle large result sets of removed work items
+                var removedWorkItems = new List<WorkItem>();
+                const int removedPageSize = 200; // Azure DevOps default limit
+                int? lastRemovedWorkItemId = null;
+                bool hasMoreRemovedWorkItems = true;
 
-                var allRemovedWorkItems = await client.QueryWorkItemsByWiql(removedWorkItemsQuery);
+                Logger.Information("Fetching removed work items with paging to handle large result sets");
 
-                // Filter with precise UTC comparison
-                var removedWorkItems = allRemovedWorkItems.Where(item =>
+                while (hasMoreRemovedWorkItems)
                 {
-                    var changedDate = item.GetField<DateTime?>("System.ChangedDate");
-                    return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
-                }).ToList();
+                    string removedWorkItemsQuery;
+
+                    if (lastRemovedWorkItemId == null)
+                    {
+                        // First page - no ID filter needed
+                        removedWorkItemsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
+                                                 FROM WorkItems 
+                                                 WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
+                                                 AND [System.TeamProject] = 'PCLabs'
+                                                 AND [System.State] = 'Removed'
+                                                 AND [System.ChangedDate] >= '{sinceLastRunDate}'
+                                                 ORDER BY [System.Id]";
+                    }
+                    else
+                    {
+                        // Subsequent pages - filter by ID to continue from where we left off
+                        removedWorkItemsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.ChangedDate]
+                                                 FROM WorkItems 
+                                                 WHERE [System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Feature', 'Epic', 'Task')
+                                                 AND [System.TeamProject] = 'PCLabs'
+                                                 AND [System.State] = 'Removed'
+                                                 AND [System.ChangedDate] >= '{sinceLastRunDate}'
+                                                 AND [System.Id] > {lastRemovedWorkItemId}
+                                                 ORDER BY [System.Id]";
+                    }
+
+                    var pageResults = await client.QueryWorkItemsByWiql(removedWorkItemsQuery, removedPageSize);
+
+                    if (pageResults.Count == 0)
+                    {
+                        hasMoreRemovedWorkItems = false;
+                        Logger.Debug($"No more removed work items found, paging complete. Total removed work items fetched: {removedWorkItems.Count}");
+                    }
+                    else
+                    {
+                        // Filter with precise UTC comparison for this page
+                        var filteredPageResults = pageResults.Where(item =>
+                        {
+                            var changedDate = item.GetField<DateTime?>("System.ChangedDate");
+                            return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                        }).ToList();
+
+                        removedWorkItems.AddRange(filteredPageResults);
+                        lastRemovedWorkItemId = pageResults.Last().Id;
+
+                        Logger.Debug($"Fetched page with {pageResults.Count} removed work items (filtered to {filteredPageResults.Count}), last ID: {lastRemovedWorkItemId}, total so far: {removedWorkItems.Count}");
+
+                        // If we got fewer results than the page size, we've reached the end
+                        if (pageResults.Count < removedPageSize)
+                        {
+                            hasMoreRemovedWorkItems = false;
+                            Logger.Debug($"Received fewer results than page size ({pageResults.Count} < {removedPageSize}), paging complete");
+                        }
+                    }
+                }
 
                 Logger.Information($"Found {removedWorkItems.Count} work items in 'Removed' state that have changed since last run");
 
