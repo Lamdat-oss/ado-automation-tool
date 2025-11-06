@@ -682,7 +682,7 @@ namespace Lamdat.Aggregation.Scripts
                            AND [Source].[System.TeamProject] = 'PCLabs'
                            AND [Target].[System.TeamProject] = 'PCLabs'
                            AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'                         
-                           AND [Target].[System.WorkItemType] IN ('Task', 'Product Backlog Item', 'Bug', 'Glitch')
+    AND [Target].[System.WorkItemType] IN ('Task', 'Product Backlog Item', 'Bug')
                            AND [Target].[System.Id] <> {featureItem.Id}";
 
                 var childPBIs = await client.QueryWorkItemsByWiql(childPBIsQuery);
@@ -939,7 +939,7 @@ namespace Lamdat.Aggregation.Scripts
                             AND [Source].[System.TeamProject] = 'PCLabs'
                             AND [Target].[System.TeamProject] = 'PCLabs'
                             AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                            AND [Target].[System.WorkItemType] = 'Task'                         
+          AND [Target].[System.WorkItemType] IN ('Task', 'Glitch')  
                             AND [Target].[System.Id] <> {parentItem.Id}";
 
                 var childTasks = await client.QueryWorkItemsByWiql(childTasksQuery);
@@ -958,6 +958,9 @@ namespace Lamdat.Aggregation.Scripts
                     }
 
 
+                    // Handle Task items differently from Glitch items
+                    if (task.WorkItemType == "Task")
+                    {
                     var completedWork = task.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
                     var activity = task.GetField<string>("Microsoft.VSTS.Common.Activity") ?? "";
 
@@ -998,11 +1001,25 @@ namespace Lamdat.Aggregation.Scripts
 
                             }
                         }
+                        }
                         else
                         {
                             // Unknown activity goes to Others
                             aggregatedData["OthersCompletedWork"] += completedWork;
                         }
+                    }
+                    else if (task.WorkItemType == "Glitch")
+                    {
+                        // Handle Glitch items (aggregate their already calculated completed work fields)
+                        aggregatedData["TotalCompletedWork"] += task.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
+                        aggregatedData["DevelopmentCompletedWork"] += task.GetField<double?>("Labs.DevCompletedWork") ?? 0;
+                        aggregatedData["QACompletedWork"] += task.GetField<double?>("Labs.QACompletedWork") ?? 0;
+                        aggregatedData["POCompletedWork"] += task.GetField<double?>("Custom.POCompletedWork") ?? 0;
+                        aggregatedData["AdminCompletedWork"] += task.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
+                        aggregatedData["OthersCompletedWork"] += task.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
+                        aggregatedData["InfraCompletedWork"] += task.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
+                        aggregatedData["CapabilitiesCompletedWork"] += task.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
+                        aggregatedData["UnProductiveCompletedWork"] += task.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
                     }
                 }
 
