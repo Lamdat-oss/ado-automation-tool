@@ -1073,11 +1073,48 @@ namespace Lamdat.Aggregation.Scripts
                     }
                 }
 
-                // Now find Feature parents for all affected PBIs/Bugs/Glitches in batches
                 var allWorkItemsNeedingFeatureParents = new List<int>();
                 allWorkItemsNeedingFeatureParents.AddRange(affectedPBIs);
                 allWorkItemsNeedingFeatureParents.AddRange(affectedBugs);
                 allWorkItemsNeedingFeatureParents.AddRange(affectedGlitches);
+
+                // Now find pbi parents for all affected Glitches in batches
+
+                if (affectedGlitches.Count > 0)
+                {
+                    var glitchBatches = affectedGlitches.Select((id, index) => new { id, index })
+                                                        .GroupBy(x => x.index / batchSize)
+                                                        .Select(g => g.Select(x => x.id).ToList())
+                                                        .ToList();
+
+                    Logger.Information($"Finding PBI parents for {affectedGlitches.Count} glitches in {glitchBatches.Count} batches");
+
+                    foreach (var glitchBatch in glitchBatches)
+                    {
+                        var glitchIds = string.Join(",", glitchBatch);
+
+                        var pbiParentsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                                FROM WorkItemLinks
+                                WHERE [Source].[System.Id] IN ({glitchIds})
+                                AND [Source].[System.TeamProject] = 'PCLabs'
+                                AND [Target].[System.TeamProject] = 'PCLabs'
+                                AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
+                                AND [Target].[System.WorkItemType] = 'Product Backlog Item'";
+
+                        var pbiParents = await client.QueryWorkItemsByWiql(pbiParentsQuery);
+                        Logger.Debug($"Found {pbiParents.Count} PBI parent relationships for batch of {glitchBatch.Count} glitches");
+
+                        foreach (var parent in pbiParents)
+                        {
+                            if (parent.WorkItemType == "Product Backlog Item")
+                            {
+                                affectedPBIs.Add(parent.Id);
+                            }
+                        }
+                    }
+                }
+
+                // Now find Feature parents for all affected PBIs/Bugs in batches
 
                 if (allWorkItemsNeedingFeatureParents.Count > 0)
                 {

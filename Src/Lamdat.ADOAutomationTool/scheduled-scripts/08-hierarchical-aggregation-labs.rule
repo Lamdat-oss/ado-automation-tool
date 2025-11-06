@@ -1,4 +1,4 @@
-﻿// Hierarchical Work Item Aggregation Task
+﻿   // Hierarchical Work Item Aggregation Task
             // This script aggregates effort data through the Epic > Feature > PBI/Bug/Glitch > Task hierarchy
             // 1. Bottom-up: Task completed work aggregated to parents (PBI/Bug/Glitch/Feature/Epic)
             // 2. Top-down: Feature estimation/remaining fields aggregated to Epic
@@ -568,6 +568,29 @@
                     }
                 });
 
+                // Re-aggregate completed work for affected product backlog items since glitches can be their children
+                await Parallel.ForEachAsync(affectedPBIs, CancellationToken, async (pbiId, ct) =>
+                {
+                    try
+                    {
+                        var pbiWorkItem = await client.GetWorkItem(pbiId);
+                        if (pbiWorkItem != null)
+                        {
+                            Logger.Debug($"Re-aggregating completed work for PBI {pbiId}: {pbiWorkItem.Title}");
+                            // Calculate completed work from all descendant tasks (through Bug/Glitch children)
+                            var pbiCompletedWork = await CalculateCompletedWorkAggregation(pbiWorkItem, disciplineMappings, client);
+                            // Update PBI with aggregated completed work
+                            await UpdateWorkItemWithCompletedWorkAggregation(pbiWorkItem, pbiCompletedWork, client);
+                            stats["PBIsUpdated"]++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warning($"Error re-aggregating PBI {pbiId} completed work: {ex.Message}");
+                        stats["Errors"]++;
+                    }
+                });
+
 
                 // Re-aggregate completed work for affected Features
                 await Parallel.ForEachAsync(affectedFeatures, CancellationToken, async (featureId, ct) =>
@@ -665,7 +688,7 @@
                            AND [Source].[System.TeamProject] = 'PCLabs'
                            AND [Target].[System.TeamProject] = 'PCLabs'
                            AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'                         
-                           AND [Target].[System.WorkItemType] IN ('Task', 'Product Backlog Item', 'Bug', 'Glitch')
+    AND [Target].[System.WorkItemType] IN ('Task', 'Product Backlog Item', 'Bug')
                            AND [Target].[System.Id] <> {featureItem.Id}";
 
                 var childPBIs = await client.QueryWorkItemsByWiql(childPBIsQuery);
@@ -922,7 +945,7 @@
                             AND [Source].[System.TeamProject] = 'PCLabs'
                             AND [Target].[System.TeamProject] = 'PCLabs'
                             AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-                            AND [Target].[System.WorkItemType] = 'Task'                         
+          AND [Target].[System.WorkItemType] IN ('Task', 'Glitch')  
                             AND [Target].[System.Id] <> {parentItem.Id}";
 
                 var childTasks = await client.QueryWorkItemsByWiql(childTasksQuery);
@@ -941,6 +964,9 @@
                     }
 
 
+                    // Handle Task items differently from Glitch items
+                    if (task.WorkItemType == "Task")
+                    {
                     var completedWork = task.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
                     var activity = task.GetField<string>("Microsoft.VSTS.Common.Activity") ?? "";
 
@@ -981,11 +1007,25 @@
 
                             }
                         }
+                        }
                         else
                         {
                             // Unknown activity goes to Others
                             aggregatedData["OthersCompletedWork"] += completedWork;
                         }
+                    }
+                    else if (task.WorkItemType == "Glitch")
+                    {
+                        // Handle Glitch items (aggregate their already calculated completed work fields)
+                        aggregatedData["TotalCompletedWork"] += task.GetField<double?>("Microsoft.VSTS.Scheduling.CompletedWork") ?? 0;
+                        aggregatedData["DevelopmentCompletedWork"] += task.GetField<double?>("Labs.DevCompletedWork") ?? 0;
+                        aggregatedData["QACompletedWork"] += task.GetField<double?>("Labs.QACompletedWork") ?? 0;
+                        aggregatedData["POCompletedWork"] += task.GetField<double?>("Custom.POCompletedWork") ?? 0;
+                        aggregatedData["AdminCompletedWork"] += task.GetField<double?>("Custom.AdminCompletedWork") ?? 0;
+                        aggregatedData["OthersCompletedWork"] += task.GetField<double?>("Custom.OthersCompletedWork") ?? 0;
+                        aggregatedData["InfraCompletedWork"] += task.GetField<double?>("Custom.InfraCompletedWork") ?? 0;
+                        aggregatedData["CapabilitiesCompletedWork"] += task.GetField<double?>("Custom.CapabilitiesCompletedWork") ?? 0;
+                        aggregatedData["UnProductiveCompletedWork"] += task.GetField<double?>("Custom.UnProductiveCompletedWork") ?? 0;
                     }
                 }
 
@@ -1056,7 +1096,41 @@
                     }
                 }
 
-                // Now find Feature parents for all affected PBIs/Bugs/Glitches in batches
+                if (affectedGlitches.Count > 0)
+                {
+                    var glitchBatches = affectedGlitches.Select((id, index) => new { id, index })
+                                                        .GroupBy(x => x.index / batchSize)
+                                                        .Select(g => g.Select(x => x.id).ToList())
+                                                        .ToList();
+
+                    Logger.Information($"Finding PBI parents for {affectedGlitches.Count} glitches in {glitchBatches.Count} batches");
+
+                    foreach (var glitchBatch in glitchBatches)
+                    {
+                        var glitchIds = string.Join(",", glitchBatch);
+
+                        var pbiParentsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                                FROM WorkItemLinks
+                                WHERE [Source].[System.Id] IN ({glitchIds})
+                                AND [Source].[System.TeamProject] = 'PCLabs'
+                                AND [Target].[System.TeamProject] = 'PCLabs'
+                                AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
+                                AND [Target].[System.WorkItemType] = 'Product Backlog Item'";
+
+                        var pbiParents = await client.QueryWorkItemsByWiql(pbiParentsQuery);
+                        Logger.Debug($"Found {pbiParents.Count} PBI parent relationships for batch of {glitchBatch.Count} glitches");
+
+                        foreach (var parent in pbiParents)
+                        {
+                            if (parent.WorkItemType == "Product Backlog Item")
+                            {
+                                affectedPBIs.Add(parent.Id);
+                            }
+                        }
+                    }
+                }
+
+                // Now find Feature parents for all affected PBIs/Bugs in batches
                 var allWorkItemsNeedingFeatureParents = new List<int>();
                 allWorkItemsNeedingFeatureParents.AddRange(affectedPBIs);
                 allWorkItemsNeedingFeatureParents.AddRange(affectedBugs);

@@ -585,6 +585,29 @@ namespace Lamdat.Aggregation.Scripts
                     }
                 });
 
+                // Re-aggregate completed work for affected product backlog items since glitches can be their children
+                await Parallel.ForEachAsync(affectedPBIs, CancellationToken, async (pbiId, ct) =>
+                {
+                    try
+                    {
+                        var pbiWorkItem = await client.GetWorkItem(pbiId);
+                        if (pbiWorkItem != null)
+                        {
+                            Logger.Debug($"Re-aggregating completed work for PBI {pbiId}: {pbiWorkItem.Title}");
+                            // Calculate completed work from all descendant tasks (through Bug/Glitch children)
+                            var pbiCompletedWork = await CalculateCompletedWorkAggregation(pbiWorkItem, disciplineMappings, client);
+                            // Update PBI with aggregated completed work
+                            await UpdateWorkItemWithCompletedWorkAggregation(pbiWorkItem, pbiCompletedWork, client);
+                            stats["PBIsUpdated"]++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warning($"Error re-aggregating PBI {pbiId} completed work: {ex.Message}");
+                        stats["Errors"]++;
+                    }
+                });
+
 
                 // Re-aggregate completed work for affected Features
                 await Parallel.ForEachAsync(affectedFeatures, CancellationToken, async (featureId, ct) =>
@@ -1090,7 +1113,41 @@ namespace Lamdat.Aggregation.Scripts
                     }
                 }
 
-                // Now find Feature parents for all affected PBIs/Bugs/Glitches in batches
+                if (affectedGlitches.Count > 0)
+                {
+                    var glitchBatches = affectedGlitches.Select((id, index) => new { id, index })
+                                                        .GroupBy(x => x.index / batchSize)
+                                                        .Select(g => g.Select(x => x.id).ToList())
+                                                        .ToList();
+
+                    Logger.Information($"Finding PBI parents for {affectedGlitches.Count} glitches in {glitchBatches.Count} batches");
+
+                    foreach (var glitchBatch in glitchBatches)
+                    {
+                        var glitchIds = string.Join(",", glitchBatch);
+
+                        var pbiParentsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                                FROM WorkItemLinks
+                                WHERE [Source].[System.Id] IN ({glitchIds})
+                                AND [Source].[System.TeamProject] = 'PCLabs'
+                                AND [Target].[System.TeamProject] = 'PCLabs'
+                                AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
+                                AND [Target].[System.WorkItemType] = 'Product Backlog Item'";
+
+                        var pbiParents = await client.QueryWorkItemsByWiql(pbiParentsQuery);
+                        Logger.Debug($"Found {pbiParents.Count} PBI parent relationships for batch of {glitchBatch.Count} glitches");
+
+                        foreach (var parent in pbiParents)
+                        {
+                            if (parent.WorkItemType == "Product Backlog Item")
+                            {
+                                affectedPBIs.Add(parent.Id);
+                            }
+                        }
+                    }
+                }
+
+                // Now find Feature parents for all affected PBIs/Bugs in batches
                 var allWorkItemsNeedingFeatureParents = new List<int>();
                 allWorkItemsNeedingFeatureParents.AddRange(affectedPBIs);
                 allWorkItemsNeedingFeatureParents.AddRange(affectedBugs);
