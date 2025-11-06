@@ -1,0 +1,94 @@
+// Test Case Field Inheritance on Create
+// This script runs when a new Test Case is created and inherits fields from the work item it tests
+// 
+// Test Cases are linked via "Tests" / "Tested By" relationship, not hierarchy
+// This script looks for the "Tests" link (forward link from Test Case) to find the work item being tested
+//
+// Supported Links:
+// - Test Case -> Feature (via "Tests" link)
+// - Test Case -> Product Backlog Item (via "Tests" link)
+// - Test Case -> Bug (via "Tests" link)
+//
+// Fields inherited: Labs.Category, Labs.ProjectCode
+
+cancellationToken.ThrowIfCancellationRequested();
+
+Logger.Information($"Processing Test Case field inheritance on create for {Self.WorkItemType} {Self.Id}: {Self.Title}");
+
+try
+{
+    // Only process Test Cases
+    if (Self.WorkItemType != "Test Case")
+    {
+        Logger.Debug($"Work item type '{Self.WorkItemType}' is not a Test Case - skipping");
+    return;
+    }
+
+    // Fields to inherit
+    var fieldsToInherit = new[] { "Labs.Category", "Labs.ProjectCode" };
+
+    // Find the work item this Test Case tests (via "Tests" link - Microsoft.VSTS.Common.TestedWorkItem)
+    var testedWorkItemRelation = Self.Relations.FirstOrDefault(r => 
+    r.Rel == "Microsoft.VSTS.Common.TestedWorkItem-Forward" || 
+        r.RelationType == "Tested Work Item");
+
+  if (testedWorkItemRelation == null)
+    {
+        Logger.Debug($"Test Case {Self.Id} has no 'Tests' link - cannot inherit fields");
+        return;
+    }
+
+    // Get the tested work item
+    var testedWorkItem = await Client.GetWorkItem(testedWorkItemRelation.RelatedWorkItemId);
+    
+    if (testedWorkItem == null || testedWorkItem.Id == 0)
+    {
+        Logger.Warning($"Could not retrieve tested work item {testedWorkItemRelation.RelatedWorkItemId} for Test Case {Self.Id}");
+return;
+    }
+
+    Logger.Debug($"Test Case {Self.Id} tests {testedWorkItem.WorkItemType} {testedWorkItem.Id}");
+
+    // Inherit fields from tested work item
+    bool fieldsInherited = false;
+
+    foreach (var fieldName in fieldsToInherit)
+    {
+      var testedWorkItemFieldValue = testedWorkItem.GetField<string>(fieldName);
+
+        if (!string.IsNullOrEmpty(testedWorkItemFieldValue))
+     {
+            var currentValue = Self.GetField<string>(fieldName);
+
+   // Only update if current field is empty or different from tested work item
+            if (string.IsNullOrEmpty(currentValue) || currentValue != testedWorkItemFieldValue)
+            {
+       Self.SetField(fieldName, testedWorkItemFieldValue);
+      fieldsInherited = true;
+                Logger.Debug($"Inherited {fieldName} = '{testedWorkItemFieldValue}' from {testedWorkItem.WorkItemType} {testedWorkItem.Id}");
+     }
+            else
+            {
+   Logger.Debug($"{fieldName} already has correct value '{currentValue}'");
+            }
+   }
+    else
+   {
+            Logger.Debug($"Tested work item {testedWorkItem.WorkItemType} {testedWorkItem.Id} has no value for {fieldName}");
+        }
+    }
+
+    if (fieldsInherited)
+    {
+        await Client.SaveWorkItem(Self);
+        Logger.Information($"Successfully inherited fields from {testedWorkItem.WorkItemType} {testedWorkItem.Id} to Test Case {Self.Id}");
+    }
+    else
+    {
+        Logger.Debug($"No fields to inherit for Test Case {Self.Id}");
+    }
+}
+catch (Exception ex)
+{
+    Logger.Error(ex, $"Error inheriting fields for Test Case {Self.Id}: {ex.Message}");
+}
