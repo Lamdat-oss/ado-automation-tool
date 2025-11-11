@@ -15,6 +15,7 @@ namespace Lamdat.ADOAutomationTool.Entities
         Task<bool> SaveWorkItemRelations(WorkItem workitem, List<WorkItemRelation> relations);
         Task<List<WorkItem>> QueryLinksByWiql(QueryLinksByWiqlPrms queryLinksByWiqlPrms);
         Task<List<WorkItem>> QueryWorkItemsByWiql(string wiqlQuery, int? top = null);
+        Task<List<WorkItem>> GetWorkItemRevisions(int workItemId, DateTime? sinceDate = null, List<string>? fields = null);
         Task<ADOUser> WhoAmI();
     }
 }
