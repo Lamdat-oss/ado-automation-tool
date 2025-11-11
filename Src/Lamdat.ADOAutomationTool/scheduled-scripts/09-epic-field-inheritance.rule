@@ -1,150 +1,276 @@
-// Epic Field Inheritance Scheduled Script
-// This script runs every 10 minutes to update field inheritance from Epics to child entities
-// when Epic fields (Custom.Category, Custom.ProjectCode) are updated
-//
-// Hierarchy: 
-// - Epic -> Feature
-// - Feature -> (PBI, Bug, Glitch, Task)
-// - PBI -> (Bug, Glitch, Task)
-// - Bug/Glitch -> Task
-// - Feature/PBI/Bug -> Test Case (via "Tested By" relationship)
-//
-// This ensures that when an Epic's fields change, all descendant work items are updated
+ // Epic Field Inheritance Scheduled Script
+            // This script runs every 10 minutes to update field inheritance from Epics to child entities
+            // when Epic fields (Custom.Category, Custom.ProjectCode) are updated
+            //
+            // Hierarchy: 
+            // - Epic -> Feature
+            // - Feature -> (PBI, Bug, Glitch, Task)
+            // - PBI -> (Bug, Glitch, Task)
+            // - Bug/Glitch -> Task
+            // - Feature/PBI/Bug -> Test Case (via "Tested By" relationship)
+            //
+            // This ensures that when an Epic's fields change, all descendant work items are updated
 
-Logger.Information("Starting Epic field inheritance scheduled task...");
-Logger.Information($"Processing changes since: {LastRun:yyyy-MM-dd HH:mm:ss}");
+            Logger.Information("Starting Epic field inheritance scheduled task...");
+            Logger.Information($"Processing changes since: {LastRun:yyyy-MM-dd HH:mm:ss}");
 
-try
-{
-	// Set the project
-	Client.Project = "Backup-Tests";
+            try
+            {
+                // Check cancellation at start
+                CancellationToken.ThrowIfCancellationRequested();
 
-	var user = await Client.WhoAmI();
-	Logger.Information($"Running as: {user?.Identity?.DisplayName}");
-	Logger.Information($"Working with project: {Client.Project}");
+                // Set the project
+                Client.Project = "Backup-Tests";
 
-	// Fields to inherit from Epic
-	var fieldsToInherit = new[] { "Labs.Category", "Labs.ProjecCode" };
+                var user = await Client.WhoAmI();
+                Logger.Information($"Running as: {user?.Identity?.DisplayName}");
+                Logger.Information($"Working with project: {Client.Project}");
 
-	// Step 1: Find all Epics that have changed since last run
-	var sinceLastRunUtc = LastRun.Kind == DateTimeKind.Utc
-		? LastRun
-		: LastRun.ToUniversalTime();
-	var sinceLastRun = sinceLastRunUtc.ToString("yyyy-MM-dd");
+                // Check cancellation
+                CancellationToken.ThrowIfCancellationRequested();
 
-	var changedEpics = new List<WorkItem>();
-	const int pageSize = 200;
-	int? lastEpicId = null;
-	bool hasMoreEpics = true;
+                // Fields to inherit from Epic
+                var fieldsToInherit = new[] { "Labs.Category", "Labs.ProjectCode" };
 
-	Logger.Information("Fetching changed Epics with paging");
+                // Step 1: Find all Epics that have changed since last run AND check their revision history
+                var sinceLastRunUtc = LastRun.Kind == DateTimeKind.Utc
+       ? LastRun
+     : LastRun.ToUniversalTime();
+                var sinceLastRun = sinceLastRunUtc.ToString("yyyy-MM-dd");
 
-	while (hasMoreEpics)
-	{
-		string changedEpicsQuery;
+                var changedEpics = new List<WorkItem>();
+                const int pageSize = 200;
+                int? lastEpicId = null;
+                bool hasMoreEpics = true;
 
-		if (lastEpicId == null)
-		{
-			changedEpicsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
+                Logger.Information("Fetching changed Epics with paging and checking revision history for field changes");
+
+                while (hasMoreEpics)
+                {
+                    // Check cancellation before each page
+                    CancellationToken.ThrowIfCancellationRequested();
+
+                    string changedEpicsQuery;
+
+                    if (lastEpicId == null)
+                    {
+                        changedEpicsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
        [Labs.Category], [Labs.ProjectCode]
    FROM WorkItems 
-         WHERE [System.WorkItemType] = 'Epic' 
-     AND [System.TeamProject] = 'Backup-Tests'
-             AND [System.ChangedDate] >= '{sinceLastRun}'    
-     ORDER BY [System.Id]";
-		}
-		else
-		{
-			changedEpicsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
+   WHERE [System.WorkItemType] = 'Epic' 
+  AND [System.TeamProject] = 'Backup-Tests'
+ AND [System.ChangedDate] >= '{sinceLastRun}'    
+  ORDER BY [System.Id]";
+                    }
+                    else
+                    {
+                        changedEpicsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
   [Labs.Category], [Labs.ProjectCode]
      FROM WorkItems 
-         WHERE [System.WorkItemType] = 'Epic' 
+WHERE [System.WorkItemType] = 'Epic' 
 AND [System.TeamProject] = 'Backup-Tests'
-        AND [System.ChangedDate] >= '{sinceLastRun}'
+      AND [System.ChangedDate] >= '{sinceLastRun}'
      AND [System.Id] > {lastEpicId}     
-       ORDER BY [System.Id]";
-		}
+  ORDER BY [System.Id]";
+                    }
 
-		var pageResults = await Client.QueryWorkItemsByWiql(changedEpicsQuery, pageSize);
+                    var pageResults = await Client.QueryWorkItemsByWiql(changedEpicsQuery, pageSize);
 
-		if (pageResults.Count == 0)
-		{
-			hasMoreEpics = false;
-			Logger.Debug($"No more Epics found, paging complete. Total Epics fetched: {changedEpics.Count}");
-		}
-		else
-		{
-			var filteredPageResults = pageResults.Where(epic =>
-					 {
-						 var changedDate = epic.GetField<DateTime?>("System.ChangedDate");
-						 return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
-					 }).ToList();
+                    if (pageResults.Count == 0)
+                    {
+                        hasMoreEpics = false;
+                        Logger.Debug($"No more Epics found, paging complete. Total Epics fetched: {changedEpics.Count}");
+                    }
+                    else
+                    {
+                        // Filter by date first
+                        var epicsToCheck = pageResults.Where(epic =>
+                         {
+                             var changedDate = epic.GetField<DateTime?>("System.ChangedDate");
+                             return changedDate.HasValue && changedDate.Value.ToUniversalTime() >= LastRun.ToUniversalTime();
+                         }).ToList();
 
-			changedEpics.AddRange(filteredPageResults);
-			lastEpicId = pageResults.Last().Id;
+                        Logger.Debug($"Checking revision history for {epicsToCheck.Count} Epics to detect field changes");
 
-			Logger.Information($"Fetched page with {pageResults.Count} Epics (filtered to {filteredPageResults.Count}), last ID: {lastEpicId}, total so far: {changedEpics.Count}");
+                        // Check each Epic's revision history in parallel
+                        var revisionCheckTasks = epicsToCheck.Select(async epic =>
+                            {
+                                try
+                                {
+                                    // Check cancellation
+                                    CancellationToken.ThrowIfCancellationRequested();
 
-			if (pageResults.Count < pageSize)
-			{
-				hasMoreEpics = false;
-				Logger.Debug($"Received fewer results than page size ({pageResults.Count} < {pageSize}), paging complete");
-			}
-		}
-	}
+                                    // Get revisions since last run for this Epic, only requesting the fields we care about
+                                    var revisions = await Client.GetWorkItemRevisions(
+             epic.Id,
+       LastRun,
+                  new List<string> { "Labs.Category", "Labs.ProjectCode", "System.ChangedDate" }
+           );
 
-	Logger.Information($"Found {changedEpics.Count} changed Epics since last run");
 
-	if (changedEpics.Count == 0)
-	{
-		Logger.Information("No Epics with changes found - no field inheritance needed");
-		return ScheduledScriptResult.Success(10, "No field inheritance needed - next check in 10 minutes");
-	}
+                                    // We have multiple revisions, check if Labs.Category or Labs.ProjectCode changed
+                                    bool fieldChanged = false;
+                                    string? previousCategory = null;
+                                    string? previousProjectCode = null;
 
-	// Step 2: For each changed Epic, get all descendant work items and update their inherited fields
-	int totalDescendantsUpdated = 0;
-	int totalErrors = 0;
+                                    // Sort revisions by date ascending
+                                    var sortedRevisions = revisions.OrderBy(r => r.GetField<DateTime?>("System.ChangedDate")).ToList();
 
-	foreach (var epic in changedEpics)
-	{
-		try
-		{
-			Logger.Information($"Processing Epic {epic.Id}: {epic.Title}");
+                                    foreach (var revision in sortedRevisions)
+                                    {
+                                        var currentCategory = revision.GetField<string>("Labs.Category");
+                                        var currentProjectCode = revision.GetField<string>("Labs.ProjectCode");
 
-			// Get values from Epic
-			var categoryValue = epic.GetField<string>("Labs.Category");
-			var projectCodeValue = epic.GetField<string>("Labs.ProjectCode");
+                                        // Check if Category field changed
+                                        if (previousCategory != currentCategory)
+                                        {
+                                            Logger.Debug($"Epic {epic.Id} - Labs.Category changed from '{previousCategory}' to '{currentCategory}' in revision {revision.Revision}");
+                                            fieldChanged = true;
+                                        }
 
-			Logger.Debug($"Epic {epic.Id} - Category: '{categoryValue}', ProjectCode: '{projectCodeValue}'");
+                                        // Check if ProjectCode field changed
+                                        if (previousProjectCode != currentProjectCode)
+                                        {
+                                            Logger.Debug($"Epic {epic.Id} - Labs.ProjectCode changed from '{previousProjectCode}' to '{currentProjectCode}' in revision {revision.Revision}");
+                                            fieldChanged = true;
+                                        }
 
-			// Step 2.1: Get all descendant work items (Features, PBIs, Bugs, Glitches, Tasks) in the hierarchy
-			var descendantsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
-        FROM WorkItemLinks
+                                        previousCategory = currentCategory;
+                                        previousProjectCode = currentProjectCode;
+                                    }
+
+                                    if (fieldChanged)
+                                    {
+                                        Logger.Debug($"Epic {epic.Id} - Inheritable fields changed, will process descendants");
+                                        return (epic, true);
+                                    }
+                                    else
+                                    {
+                                        Logger.Debug($"Epic {epic.Id} - Changed but inheritable fields unchanged, skipping");
+                                        return (epic, false);
+                                    }
+                                }
+                                catch (OperationCanceledException)
+                                {
+                                    Logger.Debug($"Revision check cancelled for Epic {epic.Id}");
+                                    throw;
+                                }
+                                catch (Exception ex)
+                                {
+                                    Logger.Warning($"Error checking revision history for Epic {epic.Id}: {ex.Message}");
+                                    // On error, include the Epic to be safe
+                                    return (epic, true);
+                                }
+                            }).ToList();
+
+                        // Wait for all revision checks with a timeout
+                        try
+                        {
+                            using var revisionCheckCts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+                            revisionCheckCts.CancelAfter(TimeSpan.FromMinutes(5)); // 5-minute timeout for all revision checks
+
+                            var revisionCheckResults = await Task.WhenAll(revisionCheckTasks).ConfigureAwait(false);
+
+                            // Filter to only Epics where fields actually changed
+                            var filteredPageResults = revisionCheckResults
+                          .Where(result => result.Item2)
+                             .Select(result => result.Item1)
+                       .ToList();
+
+                            changedEpics.AddRange(filteredPageResults);
+
+                            Logger.Information($"Fetched page with {pageResults.Count} Epics (filtered to {filteredPageResults.Count} with inheritable field changes), last ID: {lastEpicId}, total so far: {changedEpics.Count}");
+                        }
+                        catch (OperationCanceledException) when (CancellationToken.IsCancellationRequested)
+                        {
+                            Logger.Warning("Revision history check cancelled");
+                            throw;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            Logger.Warning("Revision history check timed out after 5 minutes");
+                            // On timeout, include all epics to be safe
+                            changedEpics.AddRange(epicsToCheck);
+                            Logger.Information($"Fetched page with {pageResults.Count} Epics (timeout - including all {epicsToCheck.Count}), last ID: {lastEpicId}, total so far: {changedEpics.Count}");
+                        }
+
+                        lastEpicId = pageResults.Last().Id;
+
+                        if (pageResults.Count < pageSize)
+                        {
+                            hasMoreEpics = false;
+                            Logger.Debug($"Received fewer results than page size ({pageResults.Count} < {pageSize}), paging complete");
+                        }
+                    }
+                }
+
+                Logger.Information($"Found {changedEpics.Count} changed Epics with inheritable field changes since last run");
+
+                // Check cancellation after fetching epics
+                CancellationToken.ThrowIfCancellationRequested();
+
+                if (changedEpics.Count == 0)
+                {
+                    Logger.Information("No Epics with inheritable field changes found - no field inheritance needed");
+                    return ScheduledScriptResult.Success(10, "No field inheritance needed - next check in 10 minutes");
+                }
+
+                // Step 2: For each changed Epic, get all descendant work items and update their inherited fields
+                int totalDescendantsUpdated = 0;
+                int totalErrors = 0;
+
+                foreach (var epic in changedEpics)
+                {
+                    // Check cancellation at start of each epic processing
+                    CancellationToken.ThrowIfCancellationRequested();
+
+                    try
+                    {
+                        Logger.Information($"Processing Epic {epic.Id}: {epic.Title}");
+
+                        // Get values from Epic
+                        var categoryValue = epic.GetField<string>("Labs.Category");
+                        var projectCodeValue = epic.GetField<string>("Labs.ProjectCode");
+
+                        Logger.Debug($"Epic {epic.Id} - Category: '{categoryValue}', ProjectCode: '{projectCodeValue}'");
+
+                        // Check cancellation before querying descendants
+                        CancellationToken.ThrowIfCancellationRequested();
+
+                        // Step 2.1: Get all descendant work items (Features, PBIs, Bugs, Glitches, Tasks) in the hierarchy
+                        var descendantsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+    FROM WorkItemLinks
     WHERE [Source].[System.Id] = {epic.Id}
-              AND [Source].[System.TeamProject] = 'Backup-Tests'
+     AND [Source].[System.TeamProject] = 'Backup-Tests'
      AND [Target].[System.TeamProject] = 'Backup-Tests'
   AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-         AND [Target].[System.WorkItemType] IN ('Feature', 'Product Backlog Item', 'Bug', 'Glitch', 'Task')
+      AND [Target].[System.WorkItemType] IN ('Feature', 'Product Backlog Item', 'Bug', 'Glitch', 'Task')
       ORDER BY [Target].[System.Id]";
 
-			var directDescendants = await Client.QueryWorkItemsByWiql(descendantsQuery);
-			Logger.Debug($"Found {directDescendants.Count} direct descendants for Epic {epic.Id}");
+                        var directDescendants = await Client.QueryWorkItemsByWiql(descendantsQuery);
+                        Logger.Debug($"Found {directDescendants.Count} direct descendants for Epic {epic.Id}");
 
-			// Step 2.2: For each direct descendant, get their children recursively
-			var allDescendants = new HashSet<int>();
-			var descendantProcessingStart = DateTime.UtcNow;
-			Logger.Debug($"Starting recursive descendant collection for Epic {epic.Id}");
-			
-			foreach (var descendant in directDescendants)
-			{
-				allDescendants.Add(descendant.Id);
-				Logger.Debug($"Processing descendant {descendant.WorkItemType} {descendant.Id}");
+                        // Check cancellation
+                        CancellationToken.ThrowIfCancellationRequested();
 
-				// If it's a Feature or PBI, get its children (PBI, Bug, Glitch, Task for Feature; Bug, Glitch, Task for PBI)
-				if (descendant.WorkItemType == "Feature" || descendant.WorkItemType == "Product Backlog Item")
-				{
-					Logger.Debug($"Querying children for {descendant.WorkItemType} {descendant.Id}");
-					var childrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                        // Step 2.2: For each direct descendant, get their children recursively
+                        var allDescendants = new HashSet<int>();
+                        var descendantProcessingStart = DateTime.UtcNow;
+                        Logger.Debug($"Starting recursive descendant collection for Epic {epic.Id}");
+
+                        foreach (var descendant in directDescendants)
+                        {
+                            // Check cancellation in descendant loop
+                            CancellationToken.ThrowIfCancellationRequested();
+
+                            allDescendants.Add(descendant.Id);
+                            Logger.Debug($"Processing descendant {descendant.WorkItemType} {descendant.Id}");
+
+                            // If it's a Feature or PBI, get its children (PBI, Bug, Glitch, Task for Feature; Bug, Glitch, Task for PBI)
+                            if (descendant.WorkItemType == "Feature" || descendant.WorkItemType == "Product Backlog Item")
+                            {
+                                Logger.Debug($"Querying children for {descendant.WorkItemType} {descendant.Id}");
+                                var childrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
      FROM WorkItemLinks
      WHERE [Source].[System.Id] = {descendant.Id}
     AND [Source].[System.TeamProject] = 'Backup-Tests'
@@ -152,241 +278,289 @@ AND [System.TeamProject] = 'Backup-Tests'
      AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
  AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Task')";
 
-					var children = await Client.QueryWorkItemsByWiql(childrenQuery);
-					Logger.Debug($"Found {children.Count} children for {descendant.WorkItemType} {descendant.Id}");
-					
-					foreach (var child in children)
-					{
-						allDescendants.Add(child.Id);
+                                var children = await Client.QueryWorkItemsByWiql(childrenQuery);
+                                Logger.Debug($"Found {children.Count} children for {descendant.WorkItemType} {descendant.Id}");
 
-						// If it's a PBI/Bug/Glitch, get its children (Bug, Glitch, Task)
-						if (child.WorkItemType == "Product Backlog Item" || child.WorkItemType == "Bug" || child.WorkItemType == "Glitch")
-						{
-							Logger.Debug($"Querying grandchildren for {child.WorkItemType} {child.Id}");
-							var grandchildrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
-       FROM WorkItemLinks
+                                foreach (var child in children)
+                                {
+                                    // Check cancellation in child loop
+                                    CancellationToken.ThrowIfCancellationRequested();
+
+                                    allDescendants.Add(child.Id);
+
+                                    // If it's a PBI/Bug/Glitch, get its children (Bug, Glitch, Task)
+                                    if (child.WorkItemType == "Product Backlog Item" || child.WorkItemType == "Bug" || child.WorkItemType == "Glitch")
+                                    {
+                                        Logger.Debug($"Querying grandchildren for {child.WorkItemType} {child.Id}");
+                                        var grandchildrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+  FROM WorkItemLinks
   WHERE [Source].[System.Id] = {child.Id}
-      AND [Source].[System.TeamProject] = 'Backup-Tests'
+   AND [Source].[System.TeamProject] = 'Backup-Tests'
   AND [Target].[System.TeamProject] = 'Backup-Tests'
       AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
         AND [Target].[System.WorkItemType] IN ('Bug', 'Glitch', 'Task')";
 
-							var grandchildren = await Client.QueryWorkItemsByWiql(grandchildrenQuery);
-							Logger.Debug($"Found {grandchildren.Count} grandchildren for {child.WorkItemType} {child.Id}");
-							
-							foreach (var grandchild in grandchildren)
-							{
-								allDescendants.Add(grandchild.Id);
-							}
-						}
-					}
-				}
-				// If it's a Bug or Glitch (direct child of Epic, though not in standard hierarchy), get its Task children
-				else if (descendant.WorkItemType == "Bug" || descendant.WorkItemType == "Glitch")
-				{
-					Logger.Debug($"Querying task children for {descendant.WorkItemType} {descendant.Id}");
-					var taskChildrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                                        var grandchildren = await Client.QueryWorkItemsByWiql(grandchildrenQuery);
+                                        Logger.Debug($"Found {grandchildren.Count} grandchildren for {child.WorkItemType} {child.Id}");
+
+                                        foreach (var grandchild in grandchildren)
+                                        {
+                                            allDescendants.Add(grandchild.Id);
+                                        }
+                                    }
+                                }
+                            }
+                            // If it's a Bug or Glitch (direct child of Epic, though not in standard hierarchy), get its Task children
+                            else if (descendant.WorkItemType == "Bug" || descendant.WorkItemType == "Glitch")
+                            {
+                                Logger.Debug($"Querying task children for {descendant.WorkItemType} {descendant.Id}");
+                                var taskChildrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
      FROM WorkItemLinks
  WHERE [Source].[System.Id] = {descendant.Id}
   AND [Source].[System.TeamProject] = 'Backup-Tests'
    AND [Target].[System.TeamProject] = 'Backup-Tests'
   AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
-     AND [Target].[System.WorkItemType] = 'Task'";
+   AND [Target].[System.WorkItemType] = 'Task'";
 
-					var taskChildren = await Client.QueryWorkItemsByWiql(taskChildrenQuery);
-					Logger.Debug($"Found {taskChildren.Count} task children for {descendant.WorkItemType} {descendant.Id}");
-					
-					foreach (var task in taskChildren)
-					{
-						allDescendants.Add(task.Id);
-					}
-				}
-			}
+                                var taskChildren = await Client.QueryWorkItemsByWiql(taskChildrenQuery);
+                                Logger.Debug($"Found {taskChildren.Count} task children for {descendant.WorkItemType} {descendant.Id}");
 
-			var descendantProcessingDuration = DateTime.UtcNow - descendantProcessingStart;
-			Logger.Debug($"Completed recursive descendant collection in {descendantProcessingDuration.TotalSeconds:F2} seconds");
-			
-			// Step 2.2.1: Find Test Cases linked to Feature/PBI/Bug via "Tested By" relationship
-			Logger.Debug($"Querying Test Cases linked via 'Tested By' relationship");
-			var testCaseProcessingStart = DateTime.UtcNow;
-			
-			// Get all Features, PBIs, and Bugs from directDescendants and children
-			// We need to collect work items that can have Test Cases
-			// Use HashSet to ensure each work item is only checked once
-			var workItemsToCheck = new HashSet<int>();
-			
-			// Add direct descendants that are Features, PBIs, or Bugs
-			foreach (var descendant in directDescendants.Where(d => d.WorkItemType == "Feature" || 
-																	 d.WorkItemType == "Product Backlog Item" || 
-																	 d.WorkItemType == "Bug"))
-			{
-				workItemsToCheck.Add(descendant.Id);
-			}
-			
-			// Add all other descendants (PBIs/Bugs under Features, etc.)
-			// HashSet automatically prevents duplicates
-			foreach (var descendantId in allDescendants)
-			{
-				workItemsToCheck.Add(descendantId);
-			}
-			
-			Logger.Debug($"Checking {workItemsToCheck.Count} work items for Test Case links");
-			
-			// Use HashSet to track Test Cases we've already found to prevent duplicates
-			var foundTestCases = new HashSet<int>();
-			
-			// Query Test Cases for each work item
-			foreach (var workItemId in workItemsToCheck)
-			{
-				try
-				{
-					var testCasesQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                                foreach (var task in taskChildren)
+                                {
+                                    allDescendants.Add(task.Id);
+                                }
+                            }
+                        }
+
+                        var descendantProcessingDuration = DateTime.UtcNow - descendantProcessingStart;
+                        Logger.Debug($"Completed recursive descendant collection in {descendantProcessingDuration.TotalSeconds:F2} seconds");
+
+                        // Check cancellation before test case processing
+                        CancellationToken.ThrowIfCancellationRequested();
+
+                        // Step 2.2.1: Find Test Cases linked to Feature/PBI/Bug via "Tested By" relationship
+                        Logger.Debug($"Querying Test Cases linked via 'Tested By' relationship");
+                        var testCaseProcessingStart = DateTime.UtcNow;
+
+                        // Get all Features, PBIs, and Bugs from directDescendants and children
+                        // We need to collect work items that can have Test Cases
+                        // Use HashSet to ensure each work item is only checked once
+                        var workItemsToCheck = new HashSet<int>();
+
+                        // Add direct descendants that are Features, PBIs, or Bugs
+                        foreach (var descendant in directDescendants.Where(d => d.WorkItemType == "Feature" ||
+                           d.WorkItemType == "Product Backlog Item" ||
+                                    d.WorkItemType == "Bug"))
+                        {
+                            workItemsToCheck.Add(descendant.Id);
+                        }
+
+                        // Add all other descendants (PBIs/Bugs under Features, etc.)
+                        // HashSet automatically prevents duplicates
+                        foreach (var descendantId in allDescendants)
+                        {
+                            workItemsToCheck.Add(descendantId);
+                        }
+
+                        Logger.Debug($"Checking {workItemsToCheck.Count} work items for Test Case links");
+
+                        // Use HashSet to track Test Cases we've already found to prevent duplicates
+                        var foundTestCases = new HashSet<int>();
+
+                        // Query Test Cases for each work item
+                        foreach (var workItemId in workItemsToCheck)
+                        {
+                            // Check cancellation in work item check loop
+                            CancellationToken.ThrowIfCancellationRequested();
+
+                            try
+                            {
+                                var testCasesQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
    FROM WorkItemLinks
    WHERE [Source].[System.Id] = {workItemId}
  AND [Source].[System.TeamProject] = 'Backup-Tests'
   AND [Target].[System.TeamProject] = 'Backup-Tests'
      AND [System.Links.LinkType] = 'Microsoft.VSTS.Common.TestedBy-Forward'
   AND [Target].[System.WorkItemType] = 'Test Case'";
-					
-					var testCases = await Client.QueryWorkItemsByWiql(testCasesQuery);
-					
-					if (testCases.Count > 0)
-					{
-						Logger.Debug($"Found {testCases.Count} Test Cases linked to work item {workItemId}");
-						
-						foreach (var testCase in testCases)
-						{
-							// Exclude the source work item itself (WIQL sometimes includes it)
-							if (testCase.Id == workItemId)
-							{
-								Logger.Debug($"Skipping source work item {workItemId} from Test Case results");
-								continue;
-							}
-							
-							// Only add if we haven't seen this Test Case before
-							if (foundTestCases.Add(testCase.Id))
-							{
-								allDescendants.Add(testCase.Id);
-							}
-						}
-					}
-				}
-				catch (Exception ex)
-				{
-					Logger.Warning($"Error querying Test Cases for work item {workItemId}: {ex.Message}");
-				}
-			}
-			
-			var testCaseProcessingDuration = DateTime.UtcNow - testCaseProcessingStart;
-			Logger.Debug($"Completed Test Case collection in {testCaseProcessingDuration.TotalSeconds:F2} seconds");
-			Logger.Debug($"Found {foundTestCases.Count} unique Test Cases");
-			
-			Logger.Information($"Found {allDescendants.Count} total descendants for Epic {epic.Id} (including Test Cases)");
 
-			// Step 2.3: Update each descendant work item with inherited fields (in parallel batches for better performance)
-			var descendantsUpdated = 0;
-			var errors = 0;
-			var descendantsList = allDescendants.ToList();
-			const int batchSize = 20; // Process 20 work items at a time
-			var totalBatches = (descendantsList.Count + batchSize - 1) / batchSize;
+                                var testCases = await Client.QueryWorkItemsByWiql(testCasesQuery);
 
-			Logger.Information($"Processing {descendantsList.Count} descendants in {totalBatches} batches of up to {batchSize} work items");
+                                if (testCases.Count > 0)
+                                {
+                                    Logger.Debug($"Found {testCases.Count} Test Cases linked to work item {workItemId}");
 
-			for (int batchIndex = 0; batchIndex < descendantsList.Count; batchIndex += batchSize)
-			{
-				var batch = descendantsList.Skip(batchIndex).Take(batchSize).ToList();
-				var currentBatch = (batchIndex / batchSize) + 1;
-				
-				Logger.Debug($"Processing batch {currentBatch}/{totalBatches} ({batch.Count} work items)");
+                                    foreach (var testCase in testCases)
+                                    {
+                                        // Exclude the source work item itself (WIQL sometimes includes it)
+                                        if (testCase.Id == workItemId)
+                                        {
+                                            Logger.Debug($"Skipping source work item {workItemId} from Test Case results");
+                                            continue;
+                                        }
 
-				var batchTasks = batch.Select(async descendantId =>
-				{
-					try
-					{
-						var descendantWorkItem = await Client.GetWorkItem(descendantId);
-						if (descendantWorkItem == null) return false;
+                                        // Only add if we haven't seen this Test Case before
+                                        if (foundTestCases.Add(testCase.Id))
+                                        {
+                                            allDescendants.Add(testCase.Id);
+                                        }
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Warning($"Error querying Test Cases for work item {workItemId}: {ex.Message}");
+                            }
+                        }
 
-						//// Skip work items in "Removed" state
-						// var state = descendantWorkItem.GetField<string>("System.State");
-						// if (string.Equals(state, "Removed", StringComparison.OrdinalIgnoreCase))
-						// {
-						//	 Logger.Debug($"Skipping {descendantWorkItem.WorkItemType} {descendantId} in 'Removed' state");
-						//	 return false;
-						//  }
+                        var testCaseProcessingDuration = DateTime.UtcNow - testCaseProcessingStart;
+                        Logger.Debug($"Completed Test Case collection in {testCaseProcessingDuration.TotalSeconds:F2} seconds");
+                        Logger.Debug($"Found {foundTestCases.Count} unique Test Cases");
 
-						bool needsUpdate = false;
+                        Logger.Information($"Found {allDescendants.Count} total descendants for Epic {epic.Id} (including Test Cases)");
 
-						// Update Category field
-						if (!string.IsNullOrEmpty(categoryValue))
-						{
-							var currentCategory = descendantWorkItem.GetField<string>("Labs.Category");
-							if (currentCategory != categoryValue)
-							{
-								descendantWorkItem.SetField("Labs.Category", categoryValue);
-								needsUpdate = true;
-								Logger.Debug($"Updated Category for {descendantWorkItem.WorkItemType} {descendantId}: '{currentCategory}' -> '{categoryValue}'");
-							}
-						}
+                        // Check cancellation before batch processing
+                        CancellationToken.ThrowIfCancellationRequested();
 
-						// Update ProjectCode field
-						if (!string.IsNullOrEmpty(projectCodeValue))
-						{
-							var currentProjectCode = descendantWorkItem.GetField<string>("Labs.ProjectCode");
-							if (currentProjectCode != projectCodeValue)
-							{
-								descendantWorkItem.SetField("Labs.ProjectCode", projectCodeValue);
-								needsUpdate = true;
-								Logger.Debug($"Updated ProjectCode for {descendantWorkItem.WorkItemType} {descendantId}: '{currentProjectCode}' -> '{projectCodeValue}'");
-							}
-						}
+                        // Step 2.3: Update each descendant work item with inherited fields (in parallel batches for better performance)
+                        var descendantsUpdated = 0;
+                        var errors = 0;
+                        var descendantsList = allDescendants.ToList();
+                        const int batchSize = 20; // Process 20 work items at a time
+                        var totalBatches = (descendantsList.Count + batchSize - 1) / batchSize;
 
-						if (needsUpdate)
-						{
-							await Client.SaveWorkItem(descendantWorkItem);
-							Logger.Debug($"Updated {descendantWorkItem.WorkItemType} {descendantId}");
-							return true;
-						}
-						
-						return false;
-					}
-					catch (Exception ex)
-					{
-						Logger.Warning($"Error updating descendant work item {descendantId}: {ex.Message}");
-						Interlocked.Increment(ref errors);
-						return false;
-					}
-				}).ToList();
+                        Logger.Information($"Processing {descendantsList.Count} descendants in {totalBatches} batches of up to {batchSize} work items");
 
-				// Wait for current batch to complete before starting next batch
-				var results = await Task.WhenAll(batchTasks);
-				var batchUpdated = results.Count(r => r);
-				descendantsUpdated += batchUpdated;
-				
-				Logger.Debug($"Batch {currentBatch}/{totalBatches} completed - updated {batchUpdated} work items");
-			}
+                        for (int batchIndex = 0; batchIndex < descendantsList.Count; batchIndex += batchSize)
+                        {
+                            // Check cancellation at start of each batch
+                            CancellationToken.ThrowIfCancellationRequested();
 
-			totalDescendantsUpdated += descendantsUpdated;
-			totalErrors += errors;
+                            var batch = descendantsList.Skip(batchIndex).Take(batchSize).ToList();
+                            var currentBatch = (batchIndex / batchSize) + 1;
 
-			Logger.Information($"Completed processing Epic {epic.Id} - updated {descendantsUpdated} descendants, {errors} errors");
-		}
-		catch (Exception ex)
-		{
-			Logger.Warning($"Error processing Epic {epic.Id}: {ex.Message}");
-			totalErrors++;
-		}
-	}
+                            Logger.Debug($"Processing batch {currentBatch}/{totalBatches} ({batch.Count} work items)");
 
-	Logger.Information($"Epic field inheritance completed:");
-	Logger.Information($"  - Epics processed: {changedEpics.Count}");
-	Logger.Information($"  - Descendants updated: {totalDescendantsUpdated}");
-	Logger.Information($"  - Errors: {totalErrors}");
+                            var batchTasks = batch.Select(async descendantId =>
+                        {
+                            try
+                            {
+                                // Check cancellation inside task
+                                CancellationToken.ThrowIfCancellationRequested();
 
-	var message = $"Processed {changedEpics.Count} Epics, updated {totalDescendantsUpdated} descendants";
-	return ScheduledScriptResult.Success(10, message);
-}
-catch (Exception ex)
-{
-	Logger.Error(ex, "Epic field inheritance failed");
-	return ScheduledScriptResult.Success(5, $"Field inheritance failed, will retry in 5 minutes: {ex.Message}");
-}
+                                var descendantWorkItem = await Client.GetWorkItem(descendantId);
+                                if (descendantWorkItem == null) return false;
+
+                                bool needsUpdate = false;
+
+                                // Update Category field
+                                if (!string.IsNullOrEmpty(categoryValue))
+                                {
+                                    var currentCategory = descendantWorkItem.GetField<string>("Labs.Category");
+                                    if (currentCategory != categoryValue)
+                                    {
+                                        descendantWorkItem.SetField("Labs.Category", categoryValue);
+                                        needsUpdate = true;
+                                        Logger.Debug($"Updated Category for {descendantWorkItem.WorkItemType} {descendantId}: '{currentCategory}' -> '{categoryValue}'");
+                                    }
+                                }
+
+                                // Update ProjectCode field
+                                if (!string.IsNullOrEmpty(projectCodeValue))
+                                {
+                                    var currentProjectCode = descendantWorkItem.GetField<string>("Labs.ProjectCode");
+                                    if (currentProjectCode != projectCodeValue)
+                                    {
+                                        descendantWorkItem.SetField("Labs.ProjectCode", projectCodeValue);
+                                        needsUpdate = true;
+                                        Logger.Debug($"Updated ProjectCode for {descendantWorkItem.WorkItemType} {descendantId}: '{currentProjectCode}' -> '{projectCodeValue}'");
+                                    }
+                                }
+
+                                if (needsUpdate)
+                                {
+                                    // Check cancellation before save
+                                    CancellationToken.ThrowIfCancellationRequested();
+
+                                    await Client.SaveWorkItem(descendantWorkItem);
+                                    Logger.Debug($"Updated {descendantWorkItem.WorkItemType} {descendantId}");
+                                    return true;
+                                }
+
+                                return false;
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                Logger.Debug($"Update cancelled for work item {descendantId}");
+                                throw; // Re-throw to propagate cancellation
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Warning($"Error updating descendant work item {descendantId}: {ex.Message}");
+                                Interlocked.Increment(ref errors);
+                                return false;
+                            }
+                        }).ToList();
+
+                            // Wait for current batch to complete with timeout and cancellation support
+                            try
+                            {
+                                // Create a timeout for batch processing (2 minutes per batch)
+                                using var batchTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+                                batchTimeoutCts.CancelAfter(TimeSpan.FromMinutes(2));
+
+                                var results = await Task.WhenAll(batchTasks).ConfigureAwait(false);
+                                var batchUpdated = results.Count(r => r);
+                                descendantsUpdated += batchUpdated;
+
+                                Logger.Debug($"Batch {currentBatch}/{totalBatches} completed - updated {batchUpdated} work items");
+                            }
+                            catch (OperationCanceledException) when (CancellationToken.IsCancellationRequested)
+                            {
+                                Logger.Warning($"Batch {currentBatch}/{totalBatches} cancelled");
+                                throw; // Re-throw if it's the main cancellation token
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                Logger.Warning($"Batch {currentBatch}/{totalBatches} timed out after 2 minutes");
+                                errors++;
+                            }
+                        }
+
+                        totalDescendantsUpdated += descendantsUpdated;
+                        totalErrors += errors;
+
+                        Logger.Information($"Completed processing Epic {epic.Id} - updated {descendantsUpdated} descendants, {errors} errors");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        Logger.Warning($"Processing cancelled for Epic {epic.Id}");
+                        throw; // Re-throw to stop further processing
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warning($"Error processing Epic {epic.Id}: {ex.Message}");
+                        totalErrors++;
+                    }
+                }
+
+                Logger.Information($"Epic field inheritance completed:");
+                Logger.Information($"  - Epics processed: {changedEpics.Count}");
+                Logger.Information($"  - Descendants updated: {totalDescendantsUpdated}");
+                Logger.Information($"  - Errors: {totalErrors}");
+
+                var message = $"Processed {changedEpics.Count} Epics, updated {totalDescendantsUpdated} descendants";
+                return ScheduledScriptResult.Success(10, message);
+            }
+            catch (OperationCanceledException)
+            {
+                Logger.Warning("Epic field inheritance was cancelled");
+                return ScheduledScriptResult.Success(5, "Field inheritance cancelled, will retry in 5 minutes");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Epic field inheritance failed");
+                return ScheduledScriptResult.Success(5, $"Field inheritance failed, will retry in 5 minutes: {ex.Message}");
+            }
+
+        }
+    }

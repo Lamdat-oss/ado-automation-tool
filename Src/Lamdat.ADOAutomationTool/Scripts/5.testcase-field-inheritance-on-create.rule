@@ -13,6 +13,12 @@
 
 cancellationToken.ThrowIfCancellationRequested();
 
+if (EventType != "workitem.created")
+{
+    return;
+}
+
+
 Logger.Information($"Processing Test Case field inheritance on create for {Self.WorkItemType} {Self.Id}: {Self.Title}");
 
 try

@@ -16,11 +16,11 @@
 
 cancellationToken.ThrowIfCancellationRequested();
 
-//// Only process on work item created event
-//if (EventType != "workitem.created")
-//{
-//    return;
-//}
+// Only process on work item created event
+if (EventType != "workitem.created")
+{
+    return;
+}
 
 Logger.Information($"Processing parent field inheritance on create for {Self.WorkItemType} {Self.Id}: {Self.Title}");
 
