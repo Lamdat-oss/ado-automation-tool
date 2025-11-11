@@ -1,4 +1,4 @@
- // Epic Field Inheritance Scheduled Script
+            // Epic Field Inheritance Scheduled Script
             // This script runs every 10 minutes to update field inheritance from Epics to child entities
             // when Epic fields (Custom.Category, Custom.ProjectCode) are updated
             //
@@ -562,5 +562,3 @@ AND [System.TeamProject] = 'Backup-Tests'
                 return ScheduledScriptResult.Success(5, $"Field inheritance failed, will retry in 5 minutes: {ex.Message}");
             }
 
-        }
-    }
