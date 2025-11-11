@@ -73,49 +73,14 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
                     return null;
                 }
 
-                _logger.Information($"Executing {scriptsToExecute.Count} of {orderedScriptFiles.Length} scheduled scripts (timeout: {timeoutSeconds}s)");
+                _logger.Information($"Executing {scriptsToExecute.Count} of {orderedScriptFiles.Length} scheduled scripts in parallel (timeout: {timeoutSeconds}s)");
 
-                foreach (var scriptFile in scriptsToExecute)
-                {
-                    var attempts = 1;
-                    var succeeded = false;
-                    while (!succeeded && attempts <= MAX_ATTEMPTS)
-                    {
-                        try
-                        {
-                            token.ThrowIfCancellationRequested();
+                // Execute all scripts in parallel
+                var executionTasks = scriptsToExecute.Select(scriptFile => 
+                    ExecuteScriptWithRetry(scriptFile, context, token, errCol)
+                ).ToArray();
 
-                            LogExecutionAttempt(context, scriptFile, attempts);
-                            attempts++;
-
-                            string scriptCode;
-                            using (var fileStream = new FileStream(scriptFile, FileMode.Open, FileAccess.Read, FileShare.Read))
-                            using (var reader = new StreamReader(fileStream))
-                            {
-                                scriptCode = await reader.ReadToEndAsync(token);
-                            }
-
-                            var lastRun = GetLastRunForScript(scriptFile);
-                            var result = await ExecuteScript(scriptCode, scriptFile, context, token, lastRun);
-                            
-                            // Update the script schedule information based on the result
-                            UpdateScriptScheduleInfo(scriptFile, result, context, lastRun);
-
-                            succeeded = true;
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            _logger.Error($"Scheduled Script '{scriptFile}' execution cancelled due to timeout.");
-                            errCol.GetOrAdd("Timeout", "Scheduled script execution cancelled due to timeout.");
-                            return "Scheduled script execution cancelled due to timeout.";
-                        }
-                        catch (Exception ex)
-                        {
-                            HandleScriptError(errCol, scriptFile, attempts, ex, "Error executing scheduled script");
-                            if (attempts == MAX_ATTEMPTS) succeeded = true;
-                        }
-                    }
-                }
+                await Task.WhenAll(executionTasks);
 
                 _logger.Debug("Done Executing all scheduled scripts");
                 if (errCol.Count > 0)
@@ -137,6 +102,52 @@ namespace Lamdat.ADOAutomationTool.ScriptEngine
             }
 
             return err;
+        }
+
+        /// <summary>
+        /// Executes a single script with retry logic
+        /// </summary>
+        private async Task ExecuteScriptWithRetry(string scriptFile, IContext context, CancellationToken token, ConcurrentDictionary<string, string> errCol)
+        {
+            var attempts = 1;
+            var succeeded = false;
+       
+            while (!succeeded && attempts <= MAX_ATTEMPTS)
+            {
+                try
+                {
+                    token.ThrowIfCancellationRequested();
+
+                    LogExecutionAttempt(context, scriptFile, attempts);
+                    attempts++;
+
+                    string scriptCode;
+                    using (var fileStream = new FileStream(scriptFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    using (var reader = new StreamReader(fileStream))
+                    {
+                        scriptCode = await reader.ReadToEndAsync(token);
+                    }
+
+                    var lastRun = GetLastRunForScript(scriptFile);
+                    var result = await ExecuteScript(scriptCode, scriptFile, context, token, lastRun);
+                    
+                    // Update the script schedule information based on the result
+                    UpdateScriptScheduleInfo(scriptFile, result, context, lastRun);
+
+                    succeeded = true;
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger.Error($"Scheduled Script '{scriptFile}' execution cancelled due to timeout.");
+                    errCol.GetOrAdd($"Timeout-{scriptFile}", $"Scheduled script '{scriptFile}' execution cancelled due to timeout.");
+                    succeeded = true; // Don't retry on timeout
+                }
+                catch (Exception ex)
+                {
+                    HandleScriptError(errCol, scriptFile, attempts, ex, "Error executing scheduled script");
+                    if (attempts == MAX_ATTEMPTS) succeeded = true;
+                }
+            }
         }
 
         /// <summary>

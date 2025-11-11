@@ -294,6 +294,7 @@ if (settings.MaxQueueWebHookRequestCount == 0)
 
 logger.LogInformation($"Max Webhook Queue Count is {settings.MaxQueueWebHookRequestCount}");
 logger.LogInformation($"Script Execution timeout is {settings.ScriptExecutionTimeoutSeconds} seconds");
+logger.LogInformation($"Scheduled Script Execution timeout is {settings.ScheduledScriptExecutionTimeoutSeconds ?? settings.ScriptExecutionTimeoutSeconds} seconds");
 logger.LogInformation($"Scheduled Task interval is {settings.ScheduledTaskIntervalMinutes} minutes");
 
 var csScriptEngine = app.Services.GetRequiredService<CSharpScriptEngine>();
