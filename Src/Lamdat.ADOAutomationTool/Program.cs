@@ -290,7 +290,7 @@ if (settings.ScriptExecutionTimeoutSeconds == 0)
     settings.ScriptExecutionTimeoutSeconds = 60; // Default to 60 seconds if not set
 
 if (settings.MaxQueueWebHookRequestCount == 0)
-    settings.ScriptExecutionTimeoutSeconds = 1000; // Default to 1000 seconds if not set
+    settings.MaxQueueWebHookRequestCount = 1000; // Default to 1000 if not set
 
 logger.LogInformation($"Max Webhook Queue Count is {settings.MaxQueueWebHookRequestCount}");
 logger.LogInformation($"Script Execution timeout is {settings.ScriptExecutionTimeoutSeconds} seconds");
