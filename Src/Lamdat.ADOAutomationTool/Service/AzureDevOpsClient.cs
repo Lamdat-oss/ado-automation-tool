@@ -84,13 +84,13 @@ namespace Lamdat.ADOAutomationTool.Service
                     {
                         var errorMessage = $"Failed to retrieve a work item with ID '{workItemId}'. " +
                                            $"Unexpected API response format: {jsonString}";
-                     
+
                         _logger.Error(errorMessage);
                         return new WorkItem() { Fields = new Dictionary<string, object>(), Id = 0 };
                     }
 
                     SetWorkItemRelationsAndSaveSystemConnection(workItem);
-                    
+
                     return workItem;
                 }
                 else
@@ -112,13 +112,105 @@ namespace Lamdat.ADOAutomationTool.Service
             }
         }
 
+        /// <summary>
+        /// Creates a new work item
+        /// </summary>
+        /// <param name="workItemType">The type of work item to create (e.g., "Task", "Bug", "Feature")</param>
+        /// <param name="fields">Dictionary of field names and values</param>
+        /// <returns>The created work item with assigned ID</returns>
+        public async Task<WorkItem> CreateWorkItem(string workItemType, Dictionary<string, object?> fields)
+        {
+            if (string.IsNullOrWhiteSpace(workItemType))
+                throw new ArgumentException("Work item type cannot be null or empty", nameof(workItemType));
+
+            if (fields == null)
+                throw new ArgumentNullException(nameof(fields));
+
+            if (Project == "be9b3917-87e6-42a4-a549-2bc06a7a878f") // ADO Test 
+            {
+                var testWorkItem = new WorkItem
+                {
+                    Id = Random.Shared.Next(1000, 9999),
+                    Fields = new Dictionary<string, object?>(fields)
+                };
+                testWorkItem.SetField("System.WorkItemType", workItemType);
+                return testWorkItem;
+            }
+
+            try
+            {
+                var patchOperations = new List<JsonPatchOperation>();
+
+                // Add all provided fields
+                foreach (var kvp in fields)
+                {
+                    patchOperations.Add(new JsonPatchOperation
+                    {
+                        Operation = "add",
+                        Path = $"/fields/{kvp.Key}",
+                        Value = kvp.Value
+                    });
+                }
+
+                // Ensure work item type is set
+                if (!fields.ContainsKey("System.WorkItemType"))
+                {
+                    patchOperations.Add(new JsonPatchOperation
+                    {
+                        Operation = "add",
+                        Path = "/fields/System.WorkItemType",
+                        Value = workItemType
+                    });
+                }
+
+                var json = JsonConvert.SerializeObject(patchOperations);
+                var content = new StringContent(json, Encoding.UTF8, "application/json-patch+json");
+
+                var url = $"{_collectionURL}/{Project}/_apis/wit/workitems/${workItemType}?api-version={_apiVersion}&bypassRules={_bypassRules}";
+                var response = await _client.PostAsync(url, content);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var jsonString = await response.Content.ReadAsStringAsync();
+                    var createdWorkItem = JsonConvert.DeserializeObject<WorkItem>(jsonString);
+
+                    if (createdWorkItem == null)
+                    {
+                        var errorMessage = $"Failed to create work item of type '{workItemType}'. " +
+                                           $"Unexpected API response format: {jsonString}";
+                        _logger.Error(errorMessage);
+                        throw new ADOAutomationException(errorMessage);
+                    }
+
+                    SetWorkItemRelationsAndSaveSystemConnection(createdWorkItem);
+                    return createdWorkItem;
+                }
+                else
+                {
+                    var errorMessage = $"Failed to create work item of type '{workItemType}'.";
+                    if (response.Content != null)
+                    {
+                        var errorContent = await response.Content.ReadAsStringAsync();
+                        errorMessage += $" Error: {errorContent}";
+                    }
+                    _logger.Error(errorMessage);
+                    throw new ADOAutomationException(errorMessage);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"An error occurred while creating work item: {ex.Message}");
+                throw new ADOAutomationException($"Failed to create work item: {ex.Message}");
+            }
+        }
+
         public async Task<List<WorkItem>> QueryLinksByWiql(QueryLinksByWiqlPrms queryLinksByWiqlPrms)
         {
             if (queryLinksByWiqlPrms == null)
                 throw new ArgumentNullException(nameof(queryLinksByWiqlPrms));
 
             var totalLinkedWorkItems = new List<WorkItem>();
-            
+
             try
             {
                 var url = $"{_collectionURL}/{Project}/_apis/wit/wiql?";
@@ -128,9 +220,9 @@ namespace Lamdat.ADOAutomationTool.Service
                 {
                     url += $"$top={queryLinksByWiqlPrms.Top}&";
                 }
-                
+
                 url += $"api-version={_apiVersion}";
-                
+
                 var queryString = $@" SELECT [System.Id]
                     FROM workitemLinks
                     WHERE
@@ -154,21 +246,21 @@ namespace Lamdat.ADOAutomationTool.Service
                             [Target].[System.WorkItemType] = '{queryLinksByWiqlPrms.TargetWorkItemType}'
                         ) ";
                 }
-                
+
                 queryString += $@" 
                     ORDER BY [System.ChangedDate] DESC
                     MODE (MustContain)";
-                
+
                 var wiql = new { query = queryString };
-                
-                
+
+
                 var postValue = new StringContent(JsonConvert.SerializeObject(wiql), Encoding.UTF8, "application/json"); //mediaType needs to be application/json for a post call
 
                 // send query to REST endpoint to return list of id's from query
                 var method = new HttpMethod("POST");
                 var httpRequestMessage = new HttpRequestMessage(method, url) { Content = postValue };
                 var httpResponseMessage = await _client.SendAsync(httpRequestMessage);
-                
+
 
                 if (httpResponseMessage.IsSuccessStatusCode)
                 {
@@ -180,7 +272,7 @@ namespace Lamdat.ADOAutomationTool.Service
                         var errorMessage = $"Failed to retrieve the work item's referenced items for " +
                                            $"'{queryLinksByWiqlPrms.SourceWorkItemType}' with ID '{queryLinksByWiqlPrms.SourceWorkItemId}'. " +
                                            $"Unexpected API response format: {jsonString}";
-                     
+
                         _logger.Error(errorMessage);
                         return new List<WorkItem>();
                     }
@@ -189,22 +281,22 @@ namespace Lamdat.ADOAutomationTool.Service
 
                         var relevantRelations = result.WorkItemRelations
                             .Where(wiRel => !string.IsNullOrEmpty(wiRel.Rel) &&
-                                            wiRel.Target != null && 
+                                            wiRel.Target != null &&
                                             wiRel.Target.ID > 0 &&
                                             wiRel.Source != null &&
                                             wiRel.Source.ID == queryLinksByWiqlPrms.SourceWorkItemId)
                             .ToList();
-                        
-                        
+
+
 
                         var skip = 0;
                         var total = relevantRelations.Count;
-                        
+
                         while (skip < total)
                         {
                             var idsBuilder = new System.Text.StringBuilder();
                             var pageSize = 0;
-                            
+
                             for (var i = 0; i < MAX_LINKED_ITEMS && skip + i < total; i++)
                             {
                                 var relatedWorkItem = relevantRelations.ElementAtOrDefault(skip + i);
@@ -215,12 +307,12 @@ namespace Lamdat.ADOAutomationTool.Service
                                 }
                             }
                             string ids = idsBuilder.ToString().TrimEnd(new char[] { ',' });
-                            
-                            
+
+
                             if (!string.IsNullOrWhiteSpace(ids))
                             {
                                 var idsUrl = $"{_collectionURL}/{Project}/_apis/wit/workitems?ids={ids}";
-                                
+
                                 if (queryLinksByWiqlPrms.Fields != null && queryLinksByWiqlPrms.Fields.Count > 0)
                                 {
                                     var fieldsBuilder = new System.Text.StringBuilder();
@@ -229,17 +321,17 @@ namespace Lamdat.ADOAutomationTool.Service
                                         fieldsBuilder.Append(field).Append(",");
                                     }
                                     string fieldsStr = fieldsBuilder.ToString().TrimEnd(new char[] { ',' });
-                                    
+
                                     idsUrl += $"&fields={fieldsStr}";
                                 }
                                 else
                                 {
                                     idsUrl += $"&$expand=all";
                                 }
-                                
+
                                 idsUrl += $"&api-version={_apiVersion}";
-                                
-                                
+
+
                                 var getLinkedWorkItemsWithDetailsResponse = await _client.GetAsync(idsUrl);
 
                                 if (getLinkedWorkItemsWithDetailsResponse.IsSuccessStatusCode)
@@ -252,7 +344,7 @@ namespace Lamdat.ADOAutomationTool.Service
                                         var errorMessage = $"Failed to retrieve the work item's referenced items with details for " +
                                                            $"'{queryLinksByWiqlPrms.SourceWorkItemType}' with ID '{queryLinksByWiqlPrms.SourceWorkItemId}'. " +
                                                            $"Unexpected API response format: {dataResult}";
-                         
+
                                         _logger.Error(errorMessage);
                                     }
                                     else
@@ -270,7 +362,7 @@ namespace Lamdat.ADOAutomationTool.Service
                                     var errorMessage = $"Failed to retrieve the work item's referenced items with details for " +
                                         $"'{queryLinksByWiqlPrms.SourceWorkItemType}' with ID '{queryLinksByWiqlPrms.SourceWorkItemId}': " +
                                         $"{apiErrorMsg}";
-                                    
+
                                     _logger.Error(errorMessage);
                                 }
                             }
@@ -282,13 +374,13 @@ namespace Lamdat.ADOAutomationTool.Service
                             }
                             else
                             {
-                                skip += pageSize;   
+                                skip += pageSize;
                             }
                         }
 
                         return totalLinkedWorkItems;
                     }
-                    
+
                     return new List<WorkItem>();
                 }
                 else
@@ -335,9 +427,9 @@ namespace Lamdat.ADOAutomationTool.Service
                 {
                     url += $"$top={top}&";
                 }
-                
+
                 url += $"api-version={_apiVersion}";
-                
+
                 var wiql = new { query = wiqlQuery };
                 var postValue = new StringContent(JsonConvert.SerializeObject(wiql), Encoding.UTF8, "application/json");
 
@@ -366,7 +458,7 @@ namespace Lamdat.ADOAutomationTool.Service
                     if (result.WorkItemRelations != null && result.WorkItemRelations.Count > 0)
                     {
                         var workItemIds = new HashSet<int>();
-                        
+
                         foreach (var relation in result.WorkItemRelations)
                         {
                             if (relation.Source?.ID > 0)
@@ -416,7 +508,7 @@ namespace Lamdat.ADOAutomationTool.Service
             {
                 var batchIds = workItemIds.Skip(i).Take(batchSize).ToList();
                 var ids = string.Join(",", batchIds);
-                
+
                 try
                 {
                     var url = $"{_collectionURL}/{Project}/_apis/wit/workitems?ids={ids}&$expand=All&api-version={_apiVersion}";
@@ -605,13 +697,29 @@ namespace Lamdat.ADOAutomationTool.Service
             {
                 var url = $"{_collectionURL}/{workitem.Project}/_apis/";
 
-                var payload = new
-                {
-                    relations
-                };
+                // Create JSON patch operations to add relations
+                var patchOperations = new List<JsonPatchOperation>();
 
-                var json = JsonConvert.SerializeObject(payload);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                foreach (var relation in relations)
+                {
+                    patchOperations.Add(new JsonPatchOperation
+                    {
+                        Operation = "add",
+                        Path = "/relations/-",
+                        Value = new
+                        {
+                            rel = relation.Rel,
+                            url = relation.Url,
+                            attributes = new
+                            {
+                                comment = ""
+                            }
+                        }
+                    });
+                }
+
+                var json = JsonConvert.SerializeObject(patchOperations);
+                var content = new StringContent(json, Encoding.UTF8, "application/json-patch+json");
 
                 var response = await _client.PatchAsync($"{url}wit/workitems/{workitem.Id}?api-version={_apiVersion}", content);
 
@@ -740,6 +848,94 @@ namespace Lamdat.ADOAutomationTool.Service
             }
         }
 
+        /// <summary>
+        /// Gets work item revisions to check field history
+        /// </summary>
+        /// <param name="workItemId">The work item ID</param>
+        /// <param name="sinceDate">Optional date to get revisions since</param>
+        /// <param name="fields">Optional list of specific fields to include in revision data</param>
+        /// <returns>List of work item revisions with full field data</returns>
+        public async Task<List<WorkItem>> GetWorkItemRevisions(int workItemId, DateTime? sinceDate = null, List<string>? fields = null)
+        {
+            if (Project == "be9b3917-87e6-42a4-a549-2bc06a7a878f") // ADO Test 
+                return new List<WorkItem>();
+
+            try
+            {
+                var revisions = new List<WorkItem>();
+                var skip = 0;
+                var pageSize = 200; // Increased page size for efficiency
+
+                while (true)
+                {
+                    var url = $"{_collectionURL}/{Project}/_apis/wit/workitems/{workItemId}/revisions?$top={pageSize}&$skip={skip}&api-version={_apiVersion}";
+
+                    // Add fields parameter if specified
+                    if (fields != null && fields.Count > 0)
+                    {
+                        var fieldsParam = string.Join(",", fields);
+                        url += $"&fields={fieldsParam}";
+                    }
+                    else
+                    {
+                        url += $"&$expand=all";
+                    }
+
+                    var response = await _client.GetAsync(url);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var jsonString = await response.Content.ReadAsStringAsync();
+                        var revisionResponse = JsonConvert.DeserializeObject<QueryResult<WorkItem>>(jsonString);
+
+                        if (revisionResponse?.Value == null || revisionResponse.Value.Count == 0)
+                        {
+                            break; // No more revisions
+                        }
+
+                        // Filter by date if specified
+                        var filteredRevisions = revisionResponse.Value;
+                        if (sinceDate.HasValue)
+                        {
+                            filteredRevisions = filteredRevisions.Where(rev =>
+                            {
+                                var changedDate = rev.GetField<DateTime?>("System.ChangedDate");
+                                return changedDate.HasValue && changedDate.Value >= sinceDate.Value;
+                            }).ToList();
+                        }
+
+                        revisions.AddRange(filteredRevisions);
+
+                        // If we got fewer results than page size, we're done
+                        if (revisionResponse.Value.Count < pageSize)
+                        {
+                            break;
+                        }
+
+                        skip += pageSize;
+                    }
+                    else
+                    {
+                        var errorMessage = $"Failed to retrieve revisions for work item {workItemId}.";
+                        if (response.Content != null)
+                        {
+                            var errorContent = await response.Content.ReadAsStringAsync();
+                            errorMessage += $" Error: {errorContent}";
+                        }
+                        _logger.Error(errorMessage);
+                        throw new ADOAutomationException(errorMessage);
+                    }
+                }
+
+                return revisions;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Failed to retrieve revisions for work item {workItemId}, the error was : {ex.Message}");
+                throw new ADOAutomationException($"Failed to retrieve revisions for work item {workItemId}, the error was : {ex.Message}");
+            }
+        }
+
         private void SetWorkItemRelationsAndSaveSystemConnection(WorkItem workItem)
         {
             if (workItem.relations != null)
@@ -769,14 +965,14 @@ namespace Lamdat.ADOAutomationTool.Service
                     }
                 }
             }
-                    
+
             workItem.Parent = workItem?.Relations?.Where(c => c?.RelationType == "Parent").FirstOrDefault();
             workItem.Children = workItem?.Relations?.Where(c => c?.RelationType == "Child").ToList();
-                    
+
             workItem.SetClient(this, _logger);
         }
-        
-        
+
+
         ///// <summary>
         ///// 
         ///// </summary>
