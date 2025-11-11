@@ -262,21 +262,6 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
             return resultItem;
         }
 
-        public Task<WorkItem> CreateWorkItem(string workItemType, Dictionary<string, object?> fields)
-        {
-            var workItem = new WorkItem
-            {
-                Id = _nextWorkItemId++,
-                Fields = new Dictionary<string, object?>(fields)
-            };
-            
-            // Ensure work item type is set
-            workItem.SetField("System.WorkItemType", workItemType);
-            
-            _workItems.TryAdd(workItem.Id, workItem);
-            return Task.FromResult(workItem);
-        }
-
         public Task<bool> SaveWorkItem(WorkItem newWorkItem, bool logErrorOtherwiseWarn = false)
         {
             SavedWorkItems.Add(newWorkItem);
@@ -392,9 +377,9 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
                 }
                 
                 // Handle project filtering
-                if (wiqlQuery.Contains("AND [System.TeamProject] = 'PCLabs'"))
+                if (wiqlQuery.Contains("AND [System.TeamProject] = 'ADOProject'"))
                 {
-                    results = results.Where(w => w.GetField<string>("System.TeamProject") == "PCLabs").ToList();
+                    results = results.Where(w => w.GetField<string>("System.TeamProject") == "ADOProject").ToList();
                 }
                 
                 // Handle date filtering - for testing, return items that have been recently updated

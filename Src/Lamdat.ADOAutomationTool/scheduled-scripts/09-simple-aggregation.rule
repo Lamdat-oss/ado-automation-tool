@@ -1,0 +1,163 @@
+// Simple Hierarchical Work Item Aggregation Task
+// This script provides a simplified version of hierarchical aggregation
+// Runs every 10 minutes to aggregate completed work from tasks to parents
+
+Logger.Information("Starting simple hierarchical aggregation...");
+Logger.Information($"Processing changes since: {LastRun:yyyy-MM-dd HH:mm:ss}");
+
+try 
+{
+    var user = await Client.WhoAmI();
+    Logger.Information($"Simple aggregation running as: {user?.Identity?.DisplayName}");
+    
+    // Define discipline mappings (simplified)
+    var GetDiscipline = new Func<string, string>(activity =>
+    {
+        if (string.IsNullOrEmpty(activity)) return "Other";
+        
+        var activityLower = activity.ToLower();
+        if (activityLower.Contains("development") || activityLower.Contains("code") || activityLower.Contains("tech")) return "Development";
+        if (activityLower.Contains("test") || activityLower.Contains("qa")) return "QA";
+        if (activityLower.Contains("design") || activityLower.Contains("requirement")) return "PO";
+        if (activityLower.Contains("admin") || activityLower.Contains("config") || activityLower.Contains("permission")) return "Admin";
+        return "Other";
+    });
+    
+    // Step 1: Find tasks with completed work that changed since last run
+    var sinceLastRun = LastRun.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+    var changedTasksQuery = new QueryLinksByWiqlPrms
+    {
+        Wiql = $@"SELECT [System.Id], [System.Title], [Microsoft.VSTS.Scheduling.CompletedWork], [Microsoft.VSTS.Common.Activity]
+                  FROM WorkItems 
+                  WHERE [System.WorkItemType] = 'Task' 
+                  AND [System.ChangedDate] >= '{sinceLastRun}' 
+                  ORDER BY [System.Id]"
+    };
+    
+    var changedTasks = await Client.QueryLinksByWiql(changedTasksQuery);
+    Logger.Information($"Found {changedTasks.Count} changed tasks since last run");
+    
+    if (changedTasks.Count == 0)
+    {
+        Logger.Information("No task changes found - no aggregation needed");
+        return ScheduledScriptResult.Success(10, "No changes - next check in 10 minutes");
+    }
+    
+    // Step 2: Process each changed task and update its parent
+    var processedParents = new HashSet<int>();
+    var stats = new { TasksProcessed = 0, ParentsUpdated = 0, Errors = 0 };
+    var taskCount = 0;
+    var parentCount = 0;
+    var errorCount = 0;
+    
+    foreach (var task in changedTasks)
+    {
+        try
+        {
+            taskCount++;
+            Logger.Debug($"Processing task {task.Id}: {task.Title}");
+            
+            // Get the immediate parent of this task (PBI, Bug, or Feature)
+            var parentQuery = new QueryLinksByWiqlPrms
+            {
+                Wiql = $@"SELECT [Source].[System.Id] as ParentId, [Source].[System.WorkItemType] as ParentType
+                          FROM WorkItemLinks
+                          WHERE [Target].[System.Id] = {task.Id}
+                          AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'"
+            };
+            
+            var parents = await Client.QueryLinksByWiql(parentQuery);
+            
+            foreach (var parent in parents)
+            {
+                var parentId = parent.GetField<int>("ParentId");
+                var parentType = parent.GetField<string>("ParentType");
+                
+                // Skip if we already processed this parent in this run
+                if (processedParents.Contains(parentId)) continue;
+                processedParents.Add(parentId);
+                
+                Logger.Debug($"Updating parent {parentType} {parentId}");
+                
+                // Calculate aggregated values for this parent
+                await UpdateParentAggregation(parentId, GetDiscipline);
+                parentCount++;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning($"Error processing task {task.Id}: {ex.Message}");
+            errorCount++;
+        }
+    }
+    
+    Logger.Information($"Simple aggregation completed:");
+    Logger.Information($"  - Tasks processed: {taskCount}");
+    Logger.Information($"  - Parents updated: {parentCount}");
+    Logger.Information($"  - Errors: {errorCount}");
+    
+    var message = $"Processed {taskCount} tasks, updated {parentCount} parents";
+    return ScheduledScriptResult.Success(10, message);
+}
+catch (Exception ex)
+{
+    Logger.Error(ex, "Simple hierarchical aggregation failed");
+    return ScheduledScriptResult.Success(5, $"Aggregation failed, retry in 5 minutes: {ex.Message}");
+}
+
+// Helper method to update parent work item aggregation
+async Task UpdateParentAggregation(int parentId, Func<string, string> getDiscipline)
+{
+    var parentWorkItem = await Client.GetWorkItem(parentId);
+    if (parentWorkItem == null) return;
+    
+    // Get all child tasks for this parent
+    var childTasksQuery = new QueryLinksByWiqlPrms
+    {
+        Wiql = $@"SELECT [Target].[System.Id] as TaskId, [Target].[Microsoft.VSTS.Scheduling.CompletedWork] as CompletedWork, 
+                         [Target].[Microsoft.VSTS.Common.Activity] as Activity
+                  FROM WorkItemLinks
+                  WHERE [Source].[System.Id] = {parentId}
+                  AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
+                  AND [Target].[System.WorkItemType] = 'Task'"
+    };
+    
+    var childTasks = await Client.QueryLinksByWiql(childTasksQuery);
+    
+    // Calculate aggregated values by discipline
+    var totals = new Dictionary<string, double>
+    {
+        ["Total"] = 0,
+        ["Development"] = 0,
+        ["QA"] = 0,
+        ["PO"] = 0,
+        ["Admin"] = 0,
+        ["Other"] = 0
+    };
+    
+    foreach (var task in childTasks)
+    {
+        var completedWork = task.GetField<double?>("CompletedWork") ?? 0;
+        var activity = task.GetField<string>("Activity") ?? "";
+        
+        if (completedWork > 0)
+        {
+            totals["Total"] += completedWork;
+            var discipline = getDiscipline(activity);
+            totals[discipline] += completedWork;
+        }
+    }
+    
+    // Update parent with aggregated values
+    parentWorkItem.SetField("Custom.Aggregation.TotalCompleted", totals["Total"]);
+    parentWorkItem.SetField("Custom.Aggregation.DevelopmentCompleted", totals["Development"]);
+    parentWorkItem.SetField("Custom.Aggregation.QACompleted", totals["QA"]);
+    parentWorkItem.SetField("Custom.Aggregation.POCompleted", totals["PO"]);
+    parentWorkItem.SetField("Custom.Aggregation.AdminCompleted", totals["Admin"]);
+    parentWorkItem.SetField("Custom.Aggregation.OtherCompleted", totals["Other"]);
+    parentWorkItem.SetField("Custom.Aggregation.LastUpdated", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss"));
+    
+    await Client.SaveWorkItem(parentWorkItem);
+    
+    Logger.Debug($"Updated {parentWorkItem.WorkItemType} {parentId}: Total={totals["Total"]}, Dev={totals["Development"]}, QA={totals["QA"]}");
+}

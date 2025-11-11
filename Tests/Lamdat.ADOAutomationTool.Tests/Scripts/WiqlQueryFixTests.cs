@@ -52,19 +52,19 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
             var task = CreateTestWorkItem("Task", "Test Task", "Done");
             task.SetField("Microsoft.VSTS.Scheduling.CompletedWork", 8.0);
             task.SetField("Microsoft.VSTS.Common.Activity", "Development");
-            task.SetField("System.TeamProject", "PCLabs");
+            task.SetField("System.TeamProject", "ADOProject");
             
             // Set the changed date to today to ensure it gets picked up by the date filter
             var today = DateTime.Now;
             task.SetField("System.ChangedDate", today);
 
             var pbi = CreateTestWorkItem("Product Backlog Item", "Test PBI", "Active");
-            pbi.SetField("System.TeamProject", "PCLabs");
+            pbi.SetField("System.TeamProject", "ADOProject");
             // Don't set changed date for PBI - it should not appear in either query
 
             // Script that mimics the corrected hierarchical aggregation pattern
             var script = @"
-                Client.Project = ""PCLabs"";
+                Client.Project = ""ADOProject"";
                 
                 // Test the corrected date format from hierarchical aggregation script (date only, no time)
                 var sinceLastRun = DateTime.Now.AddDays(-1).ToString(""yyyy-MM-dd"");
@@ -74,7 +74,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
                 var changedTasksQuery = $@""SELECT [System.Id], [System.Title], [System.WorkItemType], [Microsoft.VSTS.Scheduling.CompletedWork], [Microsoft.VSTS.Common.Activity]
                                           FROM WorkItems 
                                           WHERE [System.WorkItemType] = 'Task' 
-                                          AND [System.TeamProject] = 'PCLabs'
+                                          AND [System.TeamProject] = 'ADOProject'
                                           AND [System.ChangedDate] >= '{sinceLastRun}' 
                                           AND [Microsoft.VSTS.Scheduling.CompletedWork] > 0
                                           ORDER BY [System.ChangedDate]"";
@@ -86,7 +86,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
                 var changedFeaturesQuery = $@""SELECT [System.Id], [System.Title], [System.WorkItemType]
                                              FROM WorkItems 
                                              WHERE [System.WorkItemType] = 'Feature' 
-                                             AND [System.TeamProject] = 'PCLabs'
+                                             AND [System.TeamProject] = 'ADOProject'
                                              AND [System.ChangedDate] >= '{sinceLastRun}' 
                                              ORDER BY [System.ChangedDate]"";
                 
@@ -112,7 +112,7 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
         {
             // Arrange - Test the WorkItemLinks queries used in the script
             var script = @"
-                Client.Project = ""PCLabs"";
+                Client.Project = ""ADOProject"";
                 
                 // Test that the WorkItemLinks WIQL syntax is valid and executes without errors
                 // (Mock might return 0 results, but the query should execute successfully)
@@ -121,8 +121,8 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
                 var parentQuery = @""SELECT [Target].[System.Id], [Target].[System.WorkItemType]
                                     FROM WorkItemLinks
                                     WHERE [Source].[System.Id] = 123
-                                    AND [Source].[System.TeamProject] = 'PCLabs'
-                                    AND [Target].[System.TeamProject] = 'PCLabs'
+                                    AND [Source].[System.TeamProject] = 'ADOProject'
+                                    AND [Target].[System.TeamProject] = 'ADOProject'
                                     AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Reverse'
                                     AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Feature', 'Epic')"";
                 
@@ -133,8 +133,8 @@ namespace Lamdat.ADOAutomationTool.Tests.Scripts
                 var childTasksQuery = @""SELECT [Target].[System.Id], [Target].[Microsoft.VSTS.Scheduling.CompletedWork], [Target].[Microsoft.VSTS.Common.Activity]
                                         FROM WorkItemLinks
                                         WHERE [Source].[System.Id] = 456
-                                        AND [Source].[System.TeamProject] = 'PCLabs'
-                                        AND [Target].[System.TeamProject] = 'PCLabs'
+                                        AND [Source].[System.TeamProject] = 'ADOProject'
+                                        AND [Target].[System.TeamProject] = 'ADOProject'
                                         AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
                                         AND [Target].[System.WorkItemType] = 'Task'"";
                 

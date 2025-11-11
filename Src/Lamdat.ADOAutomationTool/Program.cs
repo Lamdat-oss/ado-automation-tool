@@ -27,25 +27,11 @@ builder.Services.AddLogging(opt =>
 
 });
 
-builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: false) // Set to false in production
                     .AddEnvironmentVariables()
                     .AddCommandLine(args);
 
-builder.Services.Configure<Settings>(builder.Configuration.GetSection("Settings"));
-builder.WebHost.UseKestrel().UseUrls("http://*:5000");
-
-builder.Services.AddAuthentication("BasicAuthentication")
-    .AddScheme<BasicAuthenticationOptions, BasicAuthenticationHandler>("BasicAuthentication", options => { });
-
-builder.Services.Configure<BasicAuthenticationOptions>(options =>
-{
-    var settings = builder.Configuration.GetSection("Settings").Get<Settings>();
-    if (string.IsNullOrWhiteSpace(settings.SharedKey))
-        Console.WriteLine($"Shared key is not defined or null, please set the shared key");
-    else
-        options.SharedKey = settings?.SharedKey;
-});
-
+// Move settings loading before authentication configuration
 var settings = builder.Configuration.GetSection("Settings").Get<Settings>();
 if (settings == null)
 {
@@ -53,11 +39,36 @@ if (settings == null)
     return;
 }
 
+// Validate SharedKey early
+if (string.IsNullOrWhiteSpace(settings.SharedKey))
+{
+    Console.WriteLine("ERROR: Shared key is not defined or null, please set the shared key");
+    return; // Don't start the application if SharedKey is missing
+}
+
+builder.Services.Configure<Settings>(builder.Configuration.GetSection("Settings"));
+builder.WebHost.UseKestrel().UseUrls("http://*:5000");
+
+builder.Services.AddAuthentication("BasicAuthentication")
+    .AddScheme<BasicAuthenticationOptions, BasicAuthenticationHandler>("BasicAuthentication", options => { });
+
+// Use the already loaded settings to avoid race conditions
+builder.Services.Configure<BasicAuthenticationOptions>(options =>
+{
+    options.SharedKey = settings.SharedKey; // Use the validated settings
+});
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigins", cors =>
     {
-        cors.WithOrigins(settings.AllowedCorsOrigin);
+        cors.WithOrigins(
+                "https://dev.azure.com", 
+                "https://*.visualstudio.com",
+                settings.AllowedCorsOrigin
+            )
+            .AllowAnyMethod()
+            .AllowAnyHeader();
     });
 });
 
@@ -118,7 +129,137 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+/// <summary>
+/// Sanitizes user input for logging by removing newlines and carriage returns to prevent log injection
+/// </summary>
+/// <param name="input">The input string to sanitize</param>
+/// <returns>Sanitized string safe for logging</returns>
+static string SanitizeForLogging(string input)
+{
+    if (string.IsNullOrEmpty(input))
+        return input;
+    
+    return input.Replace("\n", "").Replace("\r", "");
+}
+
+// Add bad request handling middleware BEFORE authentication
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Microsoft.AspNetCore.Http.BadHttpRequestException ex) when (ex.Message.Contains("Unexpected end of request content"))
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+        var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
+        
+        logger.LogWarning("Client sent incomplete request content from {RemoteIP}. Error: {Error}. Request: {Method} {Path}, Content-Length: {ContentLength}", 
+            sanitizedRemoteIp, 
+            ex.Message,
+            context.Request.Method,
+            context.Request.Path,
+            context.Request.ContentLength?.ToString() ?? "null");
+            
+        // Ensure response hasn't started and return 400 immediately
+        if (!context.Response.HasStarted)
+        {
+            context.Response.StatusCode = 400;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Bad request - incomplete content\",\"details\":\"Request content was incomplete or malformed\"}");
+        }
+        return; // Don't continue to next middleware
+    }
+    catch (Microsoft.AspNetCore.Http.BadHttpRequestException ex)
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+        var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
+        
+        logger.LogWarning("Bad HTTP request from {RemoteIP}: {Error}. Request: {Method} {Path}", 
+            sanitizedRemoteIp, 
+            ex.Message,
+            context.Request.Method,
+            context.Request.Path);
+            
+        // Return 400 for any bad HTTP request
+        if (!context.Response.HasStarted)
+        {
+            context.Response.StatusCode = 400;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Bad request\",\"details\":\"" + SanitizeForLogging(ex.Message) + "\"}");
+        }
+        return; // Don't continue to next middleware
+    }
+    catch (Exception ex)
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+        var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
+        
+        logger.LogError(ex, "Unhandled exception in request pipeline from {RemoteIP}: {Method} {Path}", 
+            sanitizedRemoteIp, context.Request.Method, context.Request.Path);
+        
+        if (!context.Response.HasStarted)
+        {
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Internal server error\"}");
+        }
+    }
+});
+
+// Webhook-specific logging middleware
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/webhook"))
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        // Sanitize the remote IP address before logging to prevent log injection
+        var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+        var sanitizedRemoteIp = SanitizeForLogging(remoteIp);
+        
+        // Log detailed request information for debugging
+        logger.LogDebug("Webhook request received: {Method} {Path} from {RemoteIP}, Content-Length: {ContentLength}, Content-Type: {ContentType}", 
+            context.Request.Method, 
+            context.Request.Path, 
+            sanitizedRemoteIp,
+            context.Request.ContentLength?.ToString() ?? "null",
+            context.Request.ContentType ?? "null");
+            
+        // Check for potential issues before processing
+        if (context.Request.Method == "POST")
+        {
+            var contentLength = context.Request.ContentLength;
+            var hasAuthHeader = context.Request.Headers.ContainsKey("Authorization");
+            
+            logger.LogDebug("POST webhook details - ContentLength: {ContentLength}, HasAuthHeader: {HasAuth}, UserAgent: {UserAgent}", 
+                contentLength?.ToString() ?? "null", 
+                hasAuthHeader,
+                SanitizeForLogging(context.Request.Headers.UserAgent.ToString()));
+                
+            // Warn about potential issues
+            if (!hasAuthHeader)
+            {
+                logger.LogDebug("Webhook POST request missing Authorization header from {RemoteIP}", sanitizedRemoteIp);
+            }
+            
+            if (contentLength == null)
+            {
+                logger.LogWarning("Webhook POST request missing Content-Length header from {RemoteIP}", sanitizedRemoteIp);
+            }
+            else if (contentLength == 0)
+            {
+                logger.LogWarning("Webhook POST request has Content-Length 0 from {RemoteIP}", sanitizedRemoteIp);
+            }
+        }
+    }
+    await next();
+});
+
 app.UseAuthentication();
+app.UseCors("AllowSpecificOrigins"); // Add this line - CRITICAL!
 app.UseAuthorization();
 
 app.MapControllers();
@@ -149,10 +290,11 @@ if (settings.ScriptExecutionTimeoutSeconds == 0)
     settings.ScriptExecutionTimeoutSeconds = 60; // Default to 60 seconds if not set
 
 if (settings.MaxQueueWebHookRequestCount == 0)
-    settings.ScriptExecutionTimeoutSeconds = 1000; // Default to 1000 seconds if not set
+    settings.MaxQueueWebHookRequestCount = 1000; // Default to 1000 if not set
 
 logger.LogInformation($"Max Webhook Queue Count is {settings.MaxQueueWebHookRequestCount}");
 logger.LogInformation($"Script Execution timeout is {settings.ScriptExecutionTimeoutSeconds} seconds");
+logger.LogInformation($"Scheduled Script Execution timeout is {settings.ScheduledScriptExecutionTimeoutSeconds ?? settings.ScriptExecutionTimeoutSeconds} seconds");
 logger.LogInformation($"Scheduled Task interval is {settings.ScheduledTaskIntervalMinutes} minutes");
 
 var csScriptEngine = app.Services.GetRequiredService<CSharpScriptEngine>();
