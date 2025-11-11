@@ -422,5 +422,15 @@ namespace Lamdat.ADOAutomationTool.Tests.Framework
             
             return Task.FromResult(results);
         }
+
+        public Task<WorkItem> CreateWorkItem(string workItemType, Dictionary<string, object?> fields)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<List<WorkItem>> GetWorkItemRevisions(int workItemId, DateTime? sinceDate = null, List<string>? fields = null)
+        {
+            throw new NotImplementedException();
+        }
     }
 }
