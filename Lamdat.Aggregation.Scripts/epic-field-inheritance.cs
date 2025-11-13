@@ -1,4 +1,21 @@
-﻿ // Epic Field Inheritance Scheduled Script
+using Lamdat.ADOAutomationTool.Entities;
+using Lamdat.ADOAutomationTool.ScriptEngine;
+using Serilog;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace Lamdat.Aggregation.Scripts
+{
+    internal class EpicFieldInheritance
+    {
+
+        public static async Task<ScheduledScriptResult> Run(IAzureDevOpsClient Client, ILogger Logger, CancellationToken CancellationToken, string ScriptRunId, DateTime LastRun)
+        {
+            // Epic Field Inheritance Scheduled Script
             // This script runs every 10 minutes to update field inheritance from Epics to child entities
             // when Epic fields (Custom.Category, Custom.ProjectCode) are updated
             //
@@ -502,7 +519,7 @@ AND [System.TeamProject] = 'Backup-Tests'
                                         CancellationToken.ThrowIfCancellationRequested();
 
                                         await Client.SaveWorkItem(descendantWorkItem);
-                                        Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - ✓ Updated {descendantWorkItem.WorkItemType} {descendantId}: {string.Join(", ", updateDetails)}");
+                                        Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - ? Updated {descendantWorkItem.WorkItemType} {descendantId}: {string.Join(", ", updateDetails)}");
                                         return true;
                                     }
                                     else
@@ -519,7 +536,7 @@ AND [System.TeamProject] = 'Backup-Tests'
                                 }
                                 catch (Exception ex)
                                 {
-                                    Logger.Warning($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - ✗ Error updating descendant work item {descendantId}: {ex.Message}");
+                                    Logger.Warning($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - ? Error updating descendant work item {descendantId}: {ex.Message}");
                                     Interlocked.Increment(ref errors);
                                     return false;
                                 }
@@ -554,7 +571,7 @@ AND [System.TeamProject] = 'Backup-Tests'
                         Interlocked.Add(ref totalErrors, errors);
                         var processedCount = Interlocked.Increment(ref epicsProcessedCount);
 
-                        Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - ✓ Completed - updated {descendantsUpdated} descendants, {errors} errors (Overall progress: {processedCount}/{changedEpics.Count} epics)");
+                        Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - ? Completed - updated {descendantsUpdated} descendants, {errors} errors (Overall progress: {processedCount}/{changedEpics.Count} epics)");
 
                         return (epic.Id, descendantsUpdated, errors);
                     }
@@ -568,7 +585,7 @@ AND [System.TeamProject] = 'Backup-Tests'
                         Logger.Warning($"Epic {epic.Id} - Error processing: {ex.Message}");
                         Interlocked.Increment(ref totalErrors);
                         var processedCount = Interlocked.Increment(ref epicsProcessedCount);
-                        Logger.Information($"Epic {epic.Id} - ✗ Failed (Overall progress: {processedCount}/{changedEpics.Count} epics)");
+                        Logger.Information($"Epic {epic.Id} - ? Failed (Overall progress: {processedCount}/{changedEpics.Count} epics)");
                         return (epic.Id, 0, 1);
                     }
                     finally
@@ -611,3 +628,8 @@ AND [System.TeamProject] = 'Backup-Tests'
                 Logger.Error(ex, "Epic field inheritance failed");
                 return ScheduledScriptResult.Success(5, $"Field inheritance failed, will retry in 5 minutes: {ex.Message}");
             }
+
+
+        }
+    }
+}
