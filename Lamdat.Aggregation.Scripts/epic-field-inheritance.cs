@@ -1,4 +1,4 @@
-using Lamdat.ADOAutomationTool.Entities;
+﻿using Lamdat.ADOAutomationTool.Entities;
 using Lamdat.ADOAutomationTool.ScriptEngine;
 using Serilog;
 using System;
@@ -56,7 +56,7 @@ namespace Lamdat.Aggregation.Scripts
                 var sinceLastRun = sinceLastRunUtc.ToString("yyyy-MM-dd");
 
                 var changedEpics = new List<WorkItem>();
-                const int pageSize = 200;
+                const int pageSize = 1000; // OPTIMIZATION: Increased from 200 to 1000
                 int? lastEpicId = null;
                 bool hasMoreEpics = true;
 
@@ -109,21 +109,23 @@ AND [System.TeamProject] = 'Backup-Tests'
 
                         Logger.Debug($"Checking revision history for {epicsToCheck.Count} Epics to detect field changes");
 
-                        // Check each Epic's revision history in parallel
-                        var revisionCheckTasks = epicsToCheck.Select(async epic =>
+                        // OPTIMIZATION: Parallel revision checks with increased parallelism
+                        var revisionCheckBag = new ConcurrentBag<(WorkItem epic, bool hasChanges)>();
+                        
+                        await Parallel.ForEachAsync(epicsToCheck, new ParallelOptions 
+                        { 
+                            MaxDegreeOfParallelism = 10, // OPTIMIZATION: Parallel revision checks
+                            CancellationToken = CancellationToken 
+                        }, async (epic, ct) =>
                         {
                             try
                             {
-                                // Check cancellation
-                                CancellationToken.ThrowIfCancellationRequested();
-
                                 // Get revisions since last run for this Epic, only requesting the fields we care about
                                 var revisions = await Client.GetWorkItemRevisions(
          epic.Id,
    LastRun,
               new List<string> { "Labs.Category", "Labs.ProjectCode", "System.ChangedDate" }
        );
-
 
                                 // We have multiple revisions, check if Labs.Category or Labs.ProjectCode changed
                                 bool fieldChanged = false;
@@ -159,13 +161,13 @@ AND [System.TeamProject] = 'Backup-Tests'
                                 if (fieldChanged)
                                 {
                                     Logger.Debug($"Epic {epic.Id} - Inheritable fields changed, will process descendants");
-                                    return (epic, true);
                                 }
                                 else
                                 {
                                     Logger.Debug($"Epic {epic.Id} - Changed but inheritable fields unchanged, skipping");
-                                    return (epic, false);
                                 }
+
+                                revisionCheckBag.Add((epic, fieldChanged));
                             }
                             catch (OperationCanceledException)
                             {
@@ -176,40 +178,19 @@ AND [System.TeamProject] = 'Backup-Tests'
                             {
                                 Logger.Warning($"Error checking revision history for Epic {epic.Id}: {ex.Message}");
                                 // On error, include the Epic to be safe
-                                return (epic, true);
+                                revisionCheckBag.Add((epic, true));
                             }
-                        }).ToList();
+                        });
 
-                        // Wait for all revision checks with a timeout
-                        try
-                        {
-                            using var revisionCheckCts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
-                            revisionCheckCts.CancelAfter(TimeSpan.FromMinutes(5)); // 5-minute timeout for all revision checks
+                        // Filter to only Epics where fields actually changed
+                        var filteredPageResults = revisionCheckBag
+                            .Where(result => result.hasChanges)
+                            .Select(result => result.epic)
+                            .ToList();
 
-                            var revisionCheckResults = await Task.WhenAll(revisionCheckTasks).ConfigureAwait(false);
+                        changedEpics.AddRange(filteredPageResults);
 
-                            // Filter to only Epics where fields actually changed
-                            var filteredPageResults = revisionCheckResults
-                          .Where(result => result.Item2)
-                             .Select(result => result.Item1)
-                       .ToList();
-
-                            changedEpics.AddRange(filteredPageResults);
-
-                            Logger.Information($"Fetched page with {pageResults.Count} Epics (filtered to {filteredPageResults.Count} with inheritable field changes), last ID: {lastEpicId}, total so far: {changedEpics.Count}");
-                        }
-                        catch (OperationCanceledException) when (CancellationToken.IsCancellationRequested)
-                        {
-                            Logger.Warning("Revision history check cancelled");
-                            throw;
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            Logger.Warning("Revision history check timed out after 5 minutes");
-                            // On timeout, include all epics to be safe
-                            changedEpics.AddRange(epicsToCheck);
-                            Logger.Information($"Fetched page with {pageResults.Count} Epics (timeout - including all {epicsToCheck.Count}), last ID: {lastEpicId}, total so far: {changedEpics.Count}");
-                        }
+                        Logger.Information($"Fetched page with {pageResults.Count} Epics (filtered to {filteredPageResults.Count} with inheritable field changes), last ID: {lastEpicId}, total so far: {changedEpics.Count}");
 
                         lastEpicId = pageResults.Last().Id;
 
@@ -240,8 +221,8 @@ AND [System.TeamProject] = 'Backup-Tests'
 
                 Logger.Information($"Starting parallel processing of {changedEpics.Count} Epics...");
 
-                // Process epics in parallel with a degree of parallelism (e.g., 3 epics at a time to avoid overwhelming the API)
-                const int maxDegreeOfParallelism = 3;
+                // OPTIMIZATION: Increased parallelism from 3 to 10 epics at a time
+                const int maxDegreeOfParallelism = 10;
                 var semaphore = new SemaphoreSlim(maxDegreeOfParallelism, maxDegreeOfParallelism);
 
                 var epicProcessingTasks = changedEpics.Select(async (epic, epicIndex) =>
@@ -281,20 +262,29 @@ AND [System.TeamProject] = 'Backup-Tests'
                         CancellationToken.ThrowIfCancellationRequested();
 
                         // Step 2.2: For each direct descendant, get their children recursively
-                        var allDescendants = new HashSet<int>();
+                        var allDescendants = new ConcurrentBag<int>();
                         var descendantProcessingStart = DateTime.UtcNow;
                         Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Starting recursive descendant collection");
 
+                        // Add direct descendants
                         foreach (var descendant in directDescendants)
                         {
-                            // Check cancellation in descendant loop
-                            CancellationToken.ThrowIfCancellationRequested();
-
                             allDescendants.Add(descendant.Id);
-                            Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Processing descendant {descendant.WorkItemType} {descendant.Id}");
+                        }
 
-                            // If it's a Feature or PBI, get its children (PBI, Bug, Glitch, Task for Feature; Bug, Glitch, Task for PBI)
-                            if (descendant.WorkItemType == "Feature" || descendant.WorkItemType == "Product Backlog Item")
+                        // OPTIMIZATION: Parallel processing of descendants at each level
+                        var featuresAndPBIs = directDescendants.Where(d => 
+                            d.WorkItemType == "Feature" || d.WorkItemType == "Product Backlog Item").ToList();
+                        
+                        if (featuresAndPBIs.Count > 0)
+                        {
+                            Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Querying children for {featuresAndPBIs.Count} Features/PBIs in parallel");
+                            
+                            await Parallel.ForEachAsync(featuresAndPBIs, new ParallelOptions 
+                            { 
+                                MaxDegreeOfParallelism = 10,
+                                CancellationToken = CancellationToken 
+                            }, async (descendant, ct) =>
                             {
                                 Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Querying children for {descendant.WorkItemType} {descendant.Id}");
                                 var childrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
@@ -310,14 +300,24 @@ AND [System.TeamProject] = 'Backup-Tests'
 
                                 foreach (var child in children)
                                 {
-                                    // Check cancellation in child loop
-                                    CancellationToken.ThrowIfCancellationRequested();
-
                                     allDescendants.Add(child.Id);
                                     Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Added child {child.WorkItemType} {child.Id}");
+                                }
 
-                                    // If it's a PBI/Bug/Glitch, get its children (Bug, Glitch, Task)
-                                    if (child.WorkItemType == "Product Backlog Item" || child.WorkItemType == "Bug" || child.WorkItemType == "Glitch")
+                                // Collect PBIs/Bugs/Glitches for grandchildren processing
+                                var pbisBugsGlitches = children.Where(c => 
+                                    c.WorkItemType == "Product Backlog Item" || 
+                                    c.WorkItemType == "Bug" || 
+                                    c.WorkItemType == "Glitch").ToList();
+
+                                // Query grandchildren in parallel
+                                if (pbisBugsGlitches.Count > 0)
+                                {
+                                    await Parallel.ForEachAsync(pbisBugsGlitches, new ParallelOptions 
+                                    { 
+                                        MaxDegreeOfParallelism = 10,
+                                        CancellationToken = ct 
+                                    }, async (child, ct2) =>
                                     {
                                         Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Querying grandchildren for {child.WorkItemType} {child.Id}");
                                         var grandchildrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
@@ -336,11 +336,24 @@ AND [System.TeamProject] = 'Backup-Tests'
                                             allDescendants.Add(grandchild.Id);
                                             Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Added grandchild {grandchild.WorkItemType} {grandchild.Id}");
                                         }
-                                    }
+                                    });
                                 }
-                            }
-                            // If it's a Bug or Glitch (direct child of Epic, though not in standard hierarchy), get its Task children
-                            else if (descendant.WorkItemType == "Bug" || descendant.WorkItemType == "Glitch")
+                            });
+                        }
+
+                        // Process direct Bugs/Glitches (though not standard hierarchy)
+                        var directBugsGlitches = directDescendants.Where(d => 
+                            d.WorkItemType == "Bug" || d.WorkItemType == "Glitch").ToList();
+                        
+                        if (directBugsGlitches.Count > 0)
+                        {
+                            Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Querying task children for {directBugsGlitches.Count} Bugs/Glitches in parallel");
+                            
+                            await Parallel.ForEachAsync(directBugsGlitches, new ParallelOptions 
+                            { 
+                                MaxDegreeOfParallelism = 10,
+                                CancellationToken = CancellationToken 
+                            }, async (descendant, ct) =>
                             {
                                 Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Querying task children for {descendant.WorkItemType} {descendant.Id}");
                                 var taskChildrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
@@ -359,7 +372,7 @@ AND [System.TeamProject] = 'Backup-Tests'
                                     allDescendants.Add(task.Id);
                                     Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Added task {task.Id}");
                                 }
-                            }
+                            });
                         }
 
                         var descendantProcessingDuration = DateTime.UtcNow - descendantProcessingStart;
@@ -372,80 +385,70 @@ AND [System.TeamProject] = 'Backup-Tests'
                         Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Querying Test Cases linked via 'Tested By' relationship");
                         var testCaseProcessingStart = DateTime.UtcNow;
 
-                        // Get all Features, PBIs, and Bugs from directDescendants and children
-                        // We need to collect work items that can have Test Cases
-                        // Use HashSet to ensure each work item is only checked once
-                        var workItemsToCheck = new HashSet<int>();
-
-                        // Add direct descendants that are Features, PBIs, or Bugs
-                        foreach (var descendant in directDescendants.Where(d => d.WorkItemType == "Feature" ||
-                           d.WorkItemType == "Product Backlog Item" ||
-                                    d.WorkItemType == "Bug"))
-                        {
-                            workItemsToCheck.Add(descendant.Id);
-                        }
-
-                        // Add all other descendants (PBIs/Bugs under Features, etc.)
-                        // HashSet automatically prevents duplicates
-                        foreach (var descendantId in allDescendants)
-                        {
-                            workItemsToCheck.Add(descendantId);
-                        }
-
+                        // Get unique work items to check (deduped)
+                        var workItemsToCheck = new HashSet<int>(allDescendants);
                         Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Checking {workItemsToCheck.Count} work items for Test Case links");
 
-                        // Use HashSet to track Test Cases we've already found to prevent duplicates
-                        var foundTestCases = new HashSet<int>();
-
-                        // Query Test Cases for each work item
-                        foreach (var workItemId in workItemsToCheck)
+                        // OPTIMIZATION: Batch test case queries in chunks to reduce API calls
+                        var foundTestCases = new ConcurrentBag<int>();
+                        var workItemsList = workItemsToCheck.ToList();
+                        const int testCaseBatchSize = 50; // OPTIMIZATION: Query 50 work items for test cases at once
+                        
+                        var testCaseBatches = new List<Task>();
+                        for (int i = 0; i < workItemsList.Count; i += testCaseBatchSize)
                         {
-                            // Check cancellation in work item check loop
-                            CancellationToken.ThrowIfCancellationRequested();
-
-                            try
+                            var batch = workItemsList.Skip(i).Take(testCaseBatchSize).ToList();
+                            
+                            testCaseBatches.Add(Task.Run(async () =>
                             {
-                                var testCasesQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                                // Build a query for this batch
+                                var sourceFilter = string.Join(" OR ", batch.Select(id => $"[Source].[System.Id] = {id}"));
+                                
+                                var batchTestCasesQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
    FROM WorkItemLinks
-   WHERE [Source].[System.Id] = {workItemId}
+   WHERE ({sourceFilter})
  AND [Source].[System.TeamProject] = 'Backup-Tests'
   AND [Target].[System.TeamProject] = 'Backup-Tests'
      AND [System.Links.LinkType] = 'Microsoft.VSTS.Common.TestedBy-Forward'
   AND [Target].[System.WorkItemType] = 'Test Case'";
 
-                                var testCases = await Client.QueryWorkItemsByWiql(testCasesQuery);
-
-                                if (testCases.Count > 0)
+                                try
                                 {
-                                    Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Found {testCases.Count} Test Cases linked to work item {workItemId}");
-
-                                    foreach (var testCase in testCases)
+                                    var testCases = await Client.QueryWorkItemsByWiql(batchTestCasesQuery);
+                                    
+                                    if (testCases.Count > 0)
                                     {
-                                        // Exclude the source work item itself (WIQL sometimes includes it)
-                                        if (testCase.Id == workItemId)
-                                        {
-                                            Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Skipping source work item {workItemId} from Test Case results");
-                                            continue;
-                                        }
+                                        Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Found {testCases.Count} Test Cases in batch");
 
-                                        // Only add if we haven't seen this Test Case before
-                                        if (foundTestCases.Add(testCase.Id))
+                                        foreach (var testCase in testCases)
                                         {
-                                            allDescendants.Add(testCase.Id);
-                                            Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Added Test Case {testCase.Id}");
+                                            // Exclude source work items
+                                            if (!batch.Contains(testCase.Id))
+                                            {
+                                                foundTestCases.Add(testCase.Id);
+                                                Logger.Debug($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Added Test Case {testCase.Id}");
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            catch (Exception ex)
-                            {
-                                Logger.Warning($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Error querying Test Cases for work item {workItemId}: {ex.Message}");
-                            }
+                                catch (Exception ex)
+                                {
+                                    Logger.Warning($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Error querying Test Cases for batch: {ex.Message}");
+                                }
+                            }, CancellationToken));
+                        }
+                        
+                        await Task.WhenAll(testCaseBatches);
+
+                        // Add unique test cases to descendants
+                        foreach (var testCaseId in foundTestCases.Distinct())
+                        {
+                            allDescendants.Add(testCaseId);
                         }
 
                         var testCaseProcessingDuration = DateTime.UtcNow - testCaseProcessingStart;
                         Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Completed Test Case collection in {testCaseProcessingDuration.TotalSeconds:F2} seconds");
-                        Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Found {foundTestCases.Count} unique Test Cases");
+                        Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Found {foundTestCases.Distinct().Count()} unique Test Cases");
 
                         Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Found {allDescendants.Count} total descendants (including Test Cases)");
 
@@ -455,8 +458,8 @@ AND [System.TeamProject] = 'Backup-Tests'
                         // Step 2.3: Update each descendant work item with inherited fields (in parallel batches for better performance)
                         var descendantsUpdated = 0;
                         var errors = 0;
-                        var descendantsList = allDescendants.ToList();
-                        const int batchSize = 20; // Process 20 work items at a time
+                        var descendantsList = allDescendants.Distinct().ToList();
+                        const int batchSize = 100; // OPTIMIZATION: Increased from 20 to 100
                         var totalBatches = (descendantsList.Count + batchSize - 1) / batchSize;
 
                         Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Processing {descendantsList.Count} descendants in {totalBatches} batches of up to {batchSize} work items");
@@ -519,7 +522,7 @@ AND [System.TeamProject] = 'Backup-Tests'
                                         CancellationToken.ThrowIfCancellationRequested();
 
                                         await Client.SaveWorkItem(descendantWorkItem);
-                                        Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - ? Updated {descendantWorkItem.WorkItemType} {descendantId}: {string.Join(", ", updateDetails)}");
+                                        Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - ✓ Updated {descendantWorkItem.WorkItemType} {descendantId}: {string.Join(", ", updateDetails)}");
                                         return true;
                                     }
                                     else
@@ -536,7 +539,7 @@ AND [System.TeamProject] = 'Backup-Tests'
                                 }
                                 catch (Exception ex)
                                 {
-                                    Logger.Warning($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - ? Error updating descendant work item {descendantId}: {ex.Message}");
+                                    Logger.Warning($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - ✗ Error updating descendant work item {descendantId}: {ex.Message}");
                                     Interlocked.Increment(ref errors);
                                     return false;
                                 }
@@ -545,9 +548,9 @@ AND [System.TeamProject] = 'Backup-Tests'
                             // Wait for current batch to complete with timeout and cancellation support
                             try
                             {
-                                // Create a timeout for batch processing (2 minutes per batch)
+                                // OPTIMIZATION: Increased timeout from 2 to 5 minutes per batch due to larger batches
                                 using var batchTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
-                                batchTimeoutCts.CancelAfter(TimeSpan.FromMinutes(2));
+                                batchTimeoutCts.CancelAfter(TimeSpan.FromMinutes(5));
 
                                 var results = await Task.WhenAll(batchTasks).ConfigureAwait(false);
                                 var batchUpdated = results.Count(r => r);
@@ -562,7 +565,7 @@ AND [System.TeamProject] = 'Backup-Tests'
                             }
                             catch (OperationCanceledException)
                             {
-                                Logger.Warning($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Batch {currentBatch}/{totalBatches} timed out after 2 minutes");
+                                Logger.Warning($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - Batch {currentBatch}/{totalBatches} timed out after 5 minutes");
                                 errors++;
                             }
                         }
@@ -571,7 +574,7 @@ AND [System.TeamProject] = 'Backup-Tests'
                         Interlocked.Add(ref totalErrors, errors);
                         var processedCount = Interlocked.Increment(ref epicsProcessedCount);
 
-                        Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - ? Completed - updated {descendantsUpdated} descendants, {errors} errors (Overall progress: {processedCount}/{changedEpics.Count} epics)");
+                        Logger.Information($"[{epicNumber}/{changedEpics.Count}] Epic {epic.Id} - ✓ Completed - updated {descendantsUpdated} descendants, {errors} errors (Overall progress: {processedCount}/{changedEpics.Count} epics)");
 
                         return (epic.Id, descendantsUpdated, errors);
                     }
@@ -585,7 +588,7 @@ AND [System.TeamProject] = 'Backup-Tests'
                         Logger.Warning($"Epic {epic.Id} - Error processing: {ex.Message}");
                         Interlocked.Increment(ref totalErrors);
                         var processedCount = Interlocked.Increment(ref epicsProcessedCount);
-                        Logger.Information($"Epic {epic.Id} - ? Failed (Overall progress: {processedCount}/{changedEpics.Count} epics)");
+                        Logger.Information($"{epic.Id} - ✗ Failed (Overall progress: {processedCount}/{changedEpics.Count} epics)");
                         return (epic.Id, 0, 1);
                     }
                     finally
