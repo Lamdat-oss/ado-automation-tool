@@ -127,35 +127,65 @@ AND [System.TeamProject] = 'Backup-Tests'
               new List<string> { "Labs.Category", "Labs.ProjectCode", "System.ChangedDate" }
        );
 
-                                // We have multiple revisions, check if Labs.Category or Labs.ProjectCode changed
-                                bool fieldChanged = false;
-                                string? previousCategory = null;
-                                string? previousProjectCode = null;
+                                // We need at least 1 revision to process
+                                if (revisions == null || revisions.Count == 0)
+                                {
+                                    Logger.Debug($"Epic {epic.Id} - No revisions found since last run, skipping");
+                                    revisionCheckBag.Add((epic, false));
+                                    return;
+                                }
 
                                 // Sort revisions by date ascending
                                 var sortedRevisions = revisions.OrderBy(r => r.GetField<DateTime?>("System.ChangedDate")).ToList();
 
-                                foreach (var revision in sortedRevisions)
+                                // BUGFIX: Check if Labs.Category or Labs.ProjectCode actually changed in revisions since LastRun
+                                // We need to compare values WITHIN the revision set, not just detect non-null values
+                                bool fieldChanged = false;
+                                
+                                // If we only have 1 revision since LastRun, we need to assume it might have changed
+                                // (we don't have the previous state to compare against)
+                                if (sortedRevisions.Count == 1)
                                 {
-                                    var currentCategory = revision.GetField<string>("Labs.Category");
-                                    var currentProjectCode = revision.GetField<string>("Labs.ProjectCode");
-
-                                    // Check if Category field changed
-                                    if (previousCategory != currentCategory)
+                                    // Single revision - check if the fields are set (meaning they were likely changed)
+                                    var singleRevision = sortedRevisions[0];
+                                    var category = singleRevision.GetField<string>("Labs.Category");
+                                    var projectCode = singleRevision.GetField<string>("Labs.ProjectCode");
+                                    
+                                    // If either field has a value in this revision, we'll process it to be safe
+                                    // This handles the case where the field was set in this revision
+                                    if (!string.IsNullOrEmpty(category) || !string.IsNullOrEmpty(projectCode))
                                     {
-                                        Logger.Debug($"Epic {epic.Id} - Labs.Category changed from '{previousCategory}' to '{currentCategory}' in revision {revision.Revision}");
+                                        Logger.Debug($"Epic {epic.Id} - Single revision found with inheritable fields set, will process");
                                         fieldChanged = true;
                                     }
-
-                                    // Check if ProjectCode field changed
-                                    if (previousProjectCode != currentProjectCode)
+                                }
+                                else
+                                {
+                                    // Multiple revisions - compare consecutive revisions to detect actual changes
+                                    for (int i = 1; i < sortedRevisions.Count; i++)
                                     {
-                                        Logger.Debug($"Epic {epic.Id} - Labs.ProjectCode changed from '{previousProjectCode}' to '{currentProjectCode}' in revision {revision.Revision}");
-                                        fieldChanged = true;
-                                    }
+                                        var previousRevision = sortedRevisions[i - 1];
+                                        var currentRevision = sortedRevisions[i];
+                                        
+                                        var prevCategory = previousRevision.GetField<string>("Labs.Category");
+                                        var currCategory = currentRevision.GetField<string>("Labs.Category");
+                                        var prevProjectCode = previousRevision.GetField<string>("Labs.ProjectCode");
+                                        var currProjectCode = currentRevision.GetField<string>("Labs.ProjectCode");
 
-                                    previousCategory = currentCategory;
-                                    previousProjectCode = currentProjectCode;
+                                        // Check if Category field changed
+                                        if (prevCategory != currCategory)
+                                        {
+                                            Logger.Debug($"Epic {epic.Id} - Labs.Category changed from '{prevCategory}' to '{currCategory}' in revision {currentRevision.Revision}");
+                                            fieldChanged = true;
+                                        }
+
+                                        // Check if ProjectCode field changed
+                                        if (prevProjectCode != currProjectCode)
+                                        {
+                                            Logger.Debug($"Epic {epic.Id} - Labs.ProjectCode changed from '{prevProjectCode}' to '{currProjectCode}' in revision {currentRevision.Revision}");
+                                            fieldChanged = true;
+                                        }
+                                    }
                                 }
 
                                 if (fieldChanged)
