@@ -57,9 +57,15 @@ namespace Lamdat.Aggregation.Scripts
                 var migrationStartDate = "2024-01-01";
                 Logger.Information($"Processing all Epics changed since: {migrationStartDate}");
 
+                // RATE LIMITING: Configure delays to avoid API throttling
+                const int delayBetweenEpicsMs = 500; // 500ms delay between Epic processing
+                const int delayBetweenBatchesMs = 1000; // 1 second delay between update batches
+                const int delayBetweenQueriesMs = 100; // 100ms delay between WIQL queries
+                Logger.Information($"Rate limiting configured: {delayBetweenEpicsMs}ms between Epics, {delayBetweenBatchesMs}ms between batches");
+
                 // Step 1: Find all Epics that have changed since 2024
                 var allEpics = new List<WorkItem>();
-                const int pageSize = 1000; // OPTIMIZATION: Increased from 200 to 1000
+                const int pageSize = 500; // RATE LIMIT: Reduced from 1000 to 500
                 int? lastEpicId = null;
                 bool hasMoreEpics = true;
 
@@ -95,6 +101,9 @@ WHERE [System.WorkItemType] = 'Epic'
                     }
 
                     var pageResults = await Client.QueryWorkItemsByWiql(epicsQuery, pageSize);
+
+                    // RATE LIMIT: Add delay after each page query
+                    await Task.Delay(delayBetweenQueriesMs, CancellationToken);
 
                     if (pageResults.Count == 0)
                     {
@@ -134,12 +143,14 @@ WHERE [System.WorkItemType] = 'Epic'
                 var totalDescendantsUpdated = 0;
                 var totalErrors = 0;
                 var epicsProcessedCount = 0;
+                var epicsSkippedCount = 0;
+                var rateLimitRetriesCount = 0;
                 var startTime = DateTime.Now;
 
-                Logger.Information($"Starting parallel processing of {allEpics.Count} Epics...");
+                Logger.Information($"Starting processing of {allEpics.Count} Epics...");
 
-                // OPTIMIZATION: Increased parallelism from sequential to 10 epics at a time
-                const int maxDegreeOfParallelism = 10;
+                // RATE LIMIT: Reduced from 10 to 3 parallel epics to avoid overwhelming API
+                const int maxDegreeOfParallelism = 3;
                 var semaphore = new SemaphoreSlim(maxDegreeOfParallelism, maxDegreeOfParallelism);
 
                 var epicProcessingTasks = allEpics.Select(async (epic, epicIndex) =>
@@ -147,6 +158,12 @@ WHERE [System.WorkItemType] = 'Epic'
                     await semaphore.WaitAsync(CancellationToken);
                     try
                     {
+                        // RATE LIMIT: Add delay before processing each epic
+                        if (epicIndex > 0)
+                        {
+                            await Task.Delay(delayBetweenEpicsMs, CancellationToken);
+                        }
+
                         // Check cancellation at start of each epic processing
                         CancellationToken.ThrowIfCancellationRequested();
 
@@ -157,12 +174,13 @@ WHERE [System.WorkItemType] = 'Epic'
                         var categoryValue = epic.GetField<string>("Labs.Category");
                         var projectCodeValue = epic.GetField<string>("Labs.ProjectCode");
 
-                        Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Category: '{categoryValue}', ProjectCode: '{projectCodeValue}'");
+                        Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Category: '{categoryValue}', ProjectCode: '{projectCodeValue}'");
 
                         // If Epic has no values to inherit, skip
                         if (string.IsNullOrEmpty(categoryValue) && string.IsNullOrEmpty(projectCodeValue))
                         {
-                            Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} has no values to inherit - skipping");
+                            Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - SKIPPED: No values to inherit (both Category and ProjectCode are empty)");
+                            Interlocked.Increment(ref epicsSkippedCount);
                             var skippedCount = Interlocked.Increment(ref epicsProcessedCount);
                             return (epic.Id, 0, 0);
                         }
@@ -186,6 +204,7 @@ WHERE [System.WorkItemType] = 'Epic'
  ORDER BY [Target].[System.Id]";
 
                         var directDescendants = await Client.QueryWorkItemsByWiql(directDescendantsQuery);
+                        await Task.Delay(delayBetweenQueriesMs, CancellationToken); // RATE LIMIT
                         Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Found {directDescendants.Count} direct descendants");
 
                         // Check cancellation
@@ -197,20 +216,19 @@ WHERE [System.WorkItemType] = 'Epic'
                             allDescendants.Add(descendant.Id);
                         }
 
-                        // OPTIMIZATION: Parallel processing of descendants at each level
+                        // RATE LIMIT: Reduced parallelism from 10 to 3 for descendant queries
                         var featuresAndPBIs = directDescendants.Where(d => 
                             d.WorkItemType == "Feature" || d.WorkItemType == "Product Backlog Item").ToList();
                         
                         if (featuresAndPBIs.Count > 0)
                         {
-                            Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying children for {featuresAndPBIs.Count} Features/PBIs in parallel");
+                            Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying children for {featuresAndPBIs.Count} Features/PBIs sequentially");
                             
-                            await Parallel.ForEachAsync(featuresAndPBIs, new ParallelOptions 
-                            { 
-                                MaxDegreeOfParallelism = 10,
-                                CancellationToken = CancellationToken 
-                            }, async (descendant, ct) =>
+                            // RATE LIMIT: Changed to sequential processing with delays
+                            foreach (var descendant in featuresAndPBIs)
                             {
+                                CancellationToken.ThrowIfCancellationRequested();
+                                
                                 Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying children for {descendant.WorkItemType} {descendant.Id}");
                                 var childrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
            FROM WorkItemLinks
@@ -221,6 +239,7 @@ WHERE [System.WorkItemType] = 'Epic'
  AND [Target].[System.WorkItemType] IN ('Product Backlog Item', 'Bug', 'Glitch', 'Task')";
 
                                 var children = await Client.QueryWorkItemsByWiql(childrenQuery);
+                                await Task.Delay(delayBetweenQueriesMs, CancellationToken); // RATE LIMIT
                                 Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Found {children.Count} children for {descendant.WorkItemType} {descendant.Id}");
 
                                 foreach (var child in children)
@@ -234,17 +253,13 @@ WHERE [System.WorkItemType] = 'Epic'
                                     c.WorkItemType == "Bug" || 
                                     c.WorkItemType == "Glitch").ToList();
 
-                                // Query grandchildren in parallel
-                                if (pbisBugsGlitches.Count > 0)
+                                // Query grandchildren sequentially
+                                foreach (var child in pbisBugsGlitches)
                                 {
-                                    await Parallel.ForEachAsync(pbisBugsGlitches, new ParallelOptions 
-                                    { 
-                                        MaxDegreeOfParallelism = 10,
-                                        CancellationToken = ct 
-                                    }, async (child, ct2) =>
-                                    {
-                                        Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying grandchildren for {child.WorkItemType} {child.Id}");
-                                        var grandchildrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                                    CancellationToken.ThrowIfCancellationRequested();
+                                    
+                                    Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying grandchildren for {child.WorkItemType} {child.Id}");
+                                    var grandchildrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
  FROM WorkItemLinks
       WHERE [Source].[System.Id] = {child.Id}
  AND [Source].[System.TeamProject] = 'PCLabs'
@@ -252,16 +267,16 @@ WHERE [System.WorkItemType] = 'Epic'
   AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward'
     AND [Target].[System.WorkItemType] IN ('Bug', 'Glitch', 'Task')";
 
-                                        var grandchildren = await Client.QueryWorkItemsByWiql(grandchildrenQuery);
-                                        Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Found {grandchildren.Count} grandchildren for {child.WorkItemType} {child.Id}");
+                                    var grandchildren = await Client.QueryWorkItemsByWiql(grandchildrenQuery);
+                                    await Task.Delay(delayBetweenQueriesMs, CancellationToken); // RATE LIMIT
+                                    Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Found {grandchildren.Count} grandchildren for {child.WorkItemType} {child.Id}");
 
-                                        foreach (var grandchild in grandchildren)
-                                        {
-                                            allDescendants.Add(grandchild.Id);
-                                        }
-                                    });
+                                    foreach (var grandchild in grandchildren)
+                                    {
+                                        allDescendants.Add(grandchild.Id);
+                                    }
                                 }
-                            });
+                            }
                         }
 
                         // Process direct Bugs/Glitches (though not standard hierarchy)
@@ -270,14 +285,13 @@ WHERE [System.WorkItemType] = 'Epic'
                         
                         if (directBugsGlitches.Count > 0)
                         {
-                            Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying task children for {directBugsGlitches.Count} Bugs/Glitches in parallel");
+                            Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying task children for {directBugsGlitches.Count} Bugs/Glitches sequentially");
                             
-                            await Parallel.ForEachAsync(directBugsGlitches, new ParallelOptions 
-                            { 
-                                MaxDegreeOfParallelism = 10,
-                                CancellationToken = CancellationToken 
-                            }, async (descendant, ct) =>
+                            // RATE LIMIT: Changed to sequential processing
+                            foreach (var descendant in directBugsGlitches)
                             {
+                                CancellationToken.ThrowIfCancellationRequested();
+                                
                                 Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying task children for {descendant.WorkItemType} {descendant.Id}");
                                 var taskChildrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
      FROM WorkItemLinks
@@ -288,13 +302,14 @@ WHERE [System.WorkItemType] = 'Epic'
      AND [Target].[System.WorkItemType] = 'Task'";
 
                                 var taskChildren = await Client.QueryWorkItemsByWiql(taskChildrenQuery);
+                                await Task.Delay(delayBetweenQueriesMs, CancellationToken); // RATE LIMIT
                                 Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Found {taskChildren.Count} task children for {descendant.WorkItemType} {descendant.Id}");
 
                                 foreach (var task in taskChildren)
                                 {
                                     allDescendants.Add(task.Id);
                                 }
-                            });
+                            }
                         }
 
                         var descendantProcessingDuration = DateTime.UtcNow - descendantProcessingStart;
@@ -311,22 +326,21 @@ WHERE [System.WorkItemType] = 'Epic'
                         var workItemsToCheck = new HashSet<int>(allDescendants);
                         Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Checking {workItemsToCheck.Count} work items for Test Case links");
 
-                        // OPTIMIZATION: Batch test case queries in chunks to reduce API calls
+                        // RATE LIMIT: Batch test case queries with delays
                         var foundTestCases = new ConcurrentBag<int>();
                         var workItemsList = workItemsToCheck.ToList();
-                        const int testCaseBatchSize = 50; // OPTIMIZATION: Query 50 work items for test cases at once
+                        const int testCaseBatchSize = 25; // RATE LIMIT: Reduced from 50 to 25
                         
-                        var testCaseBatches = new List<Task>();
                         for (int i = 0; i < workItemsList.Count; i += testCaseBatchSize)
                         {
+                            CancellationToken.ThrowIfCancellationRequested();
+                            
                             var batch = workItemsList.Skip(i).Take(testCaseBatchSize).ToList();
                             
-                            testCaseBatches.Add(Task.Run(async () =>
-                            {
-                                // Build a query for this batch
-                                var sourceFilter = string.Join(" OR ", batch.Select(id => $"[Source].[System.Id] = {id}"));
-                                
-                                var batchTestCasesQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
+                            // Build a query for this batch
+                            var sourceFilter = string.Join(" OR ", batch.Select(id => $"[Source].[System.Id] = {id}"));
+                            
+                            var batchTestCasesQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
    FROM WorkItemLinks
    WHERE ({sourceFilter})
  AND [Source].[System.TeamProject] = 'PCLabs'
@@ -334,33 +348,62 @@ WHERE [System.WorkItemType] = 'Epic'
      AND [System.Links.LinkType] = 'Microsoft.VSTS.Common.TestedBy-Forward'
   AND [Target].[System.WorkItemType] = 'Test Case'";
 
-                                try
+                            try
+                            {
+                                var testCases = await Client.QueryWorkItemsByWiql(batchTestCasesQuery);
+                                await Task.Delay(delayBetweenQueriesMs, CancellationToken); // RATE LIMIT
+                                
+                                if (testCases.Count > 0)
                                 {
-                                    var testCases = await Client.QueryWorkItemsByWiql(batchTestCasesQuery);
-                                    
-                                    if (testCases.Count > 0)
-                                    {
-                                        Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Found {testCases.Count} Test Cases in batch");
+                                    Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Found {testCases.Count} Test Cases in batch");
 
-                                        foreach (var testCase in testCases)
+                                    foreach (var testCase in testCases)
+                                    {
+                                        // Exclude source work items
+                                        if (!batch.Contains(testCase.Id))
                                         {
-                                            // Exclude source work items
-                                            if (!batch.Contains(testCase.Id))
-                                            {
-                                                foundTestCases.Add(testCase.Id);
-                                                Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Added Test Case {testCase.Id}");
-                                            }
+                                            foundTestCases.Add(testCase.Id);
+                                            Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Added Test Case {testCase.Id}");
                                         }
                                     }
                                 }
-                                catch (Exception ex)
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Error querying Test Cases for batch: {ex.Message}");
+                                
+                                // RATE LIMIT: Check if it's a rate limit error and retry with exponential backoff
+                                if (ex.Message.Contains("429") || ex.Message.Contains("TF400733") || ex.Message.Contains("rate limit"))
                                 {
-                                    Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Error querying Test Cases for batch: {ex.Message}");
+                                    Interlocked.Increment(ref rateLimitRetriesCount);
+                                    Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Rate limit detected, waiting 30 seconds before retry...");
+                                    await Task.Delay(30000, CancellationToken);
+                                    
+                                    // Retry once
+                                    try
+                                    {
+                                        var testCases = await Client.QueryWorkItemsByWiql(batchTestCasesQuery);
+                                        await Task.Delay(delayBetweenQueriesMs, CancellationToken);
+                                        
+                                        if (testCases.Count > 0)
+                                        {
+                                            foreach (var testCase in testCases)
+                                            {
+                                                if (!batch.Contains(testCase.Id))
+                                                {
+                                                    foundTestCases.Add(testCase.Id);
+                                                }
+                                            }
+                                        }
+                                        Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Retry successful after rate limit");
+                                    }
+                                    catch (Exception retryEx)
+                                    {
+                                        Logger.Error($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Retry failed: {retryEx.Message}");
+                                    }
                                 }
-                            }, CancellationToken));
+                            }
                         }
-                        
-                        await Task.WhenAll(testCaseBatches);
 
                         // Add unique test cases to descendants
                         foreach (var testCaseId in foundTestCases.Distinct())
@@ -381,7 +424,7 @@ WHERE [System.WorkItemType] = 'Epic'
                         var descendantsUpdated = 0;
                         var errors = 0;
                         var descendantsList = allDescendants.Distinct().ToList();
-                        const int batchSize = 100; // OPTIMIZATION: Increased from 20 to 100
+                        const int batchSize = 50; // RATE LIMIT: Reduced from 100 to 50
                         var totalBatches = (descendantsList.Count + batchSize - 1) / batchSize;
 
                         if (descendantsList.Count > 0)
@@ -392,6 +435,12 @@ WHERE [System.WorkItemType] = 'Epic'
                             {
                                 // Check cancellation at start of each batch
                                 CancellationToken.ThrowIfCancellationRequested();
+
+                                // RATE LIMIT: Add delay between batches
+                                if (batchIndex > 0)
+                                {
+                                    await Task.Delay(delayBetweenBatchesMs, CancellationToken);
+                                }
 
                                 var batch = descendantsList.Skip(batchIndex).Take(batchSize).ToList();
                                 var currentBatch = (batchIndex / batchSize) + 1;
@@ -467,6 +516,14 @@ WHERE [System.WorkItemType] = 'Epic'
                                     catch (Exception ex)
                                     {
                                         Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - ✗ Error updating descendant work item {descendantId}: {ex.Message}");
+                                        
+                                        // RATE LIMIT: Check for rate limit errors
+                                        if (ex.Message.Contains("429") || ex.Message.Contains("TF400733") || ex.Message.Contains("rate limit"))
+                                        {
+                                            Interlocked.Increment(ref rateLimitRetriesCount);
+                                            Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Rate limit detected on work item {descendantId}, will skip and continue");
+                                        }
+                                        
                                         Interlocked.Increment(ref errors);
                                         return false;
                                     }
@@ -475,9 +532,9 @@ WHERE [System.WorkItemType] = 'Epic'
                                 // Wait for current batch to complete with timeout and cancellation support
                                 try
                                 {
-                                    // OPTIMIZATION: Increased timeout from 2 to 5 minutes per batch due to larger batches
+                                    // RATE LIMIT: Increased timeout to 10 minutes per batch to handle delays
                                     using var batchTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
-                                    batchTimeoutCts.CancelAfter(TimeSpan.FromMinutes(5));
+                                    batchTimeoutCts.CancelAfter(TimeSpan.FromMinutes(10));
 
                                     var results = await Task.WhenAll(batchTasks).ConfigureAwait(false);
                                     var batchUpdated = results.Count(r => r);
@@ -492,7 +549,7 @@ WHERE [System.WorkItemType] = 'Epic'
                                 }
                                 catch (OperationCanceledException)
                                 {
-                                    Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Batch {currentBatch}/{totalBatches} timed out after 5 minutes");
+                                    Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Batch {currentBatch}/{totalBatches} timed out after 10 minutes");
                                     errors++;
                                 }
                             }
@@ -516,6 +573,7 @@ WHERE [System.WorkItemType] = 'Epic'
                             Logger.Information($"Time elapsed: {elapsed:hh\\:mm\\:ss}");
                             Logger.Information($"Estimated remaining: {estimatedRemaining:hh\\:mm\\:ss}");
                             Logger.Information($"Total descendants updated so far: {totalDescendantsUpdated}");
+                            Logger.Information($"Rate limit retries so far: {rateLimitRetriesCount}");
                             Logger.Information($"========================================================");
                         }
 
@@ -561,15 +619,18 @@ WHERE [System.WorkItemType] = 'Epic'
                 Logger.Information($"=================================================================");
                 Logger.Information($"HISTORICAL MIGRATION COMPLETED");
                 Logger.Information($"=================================================================");
-                Logger.Information($"  - Total Epics processed: {epicsProcessedCount}");
+                Logger.Information($"  - Total Epics found: {allEpics.Count}");
+                Logger.Information($"  - Epics processed: {epicsProcessedCount - epicsSkippedCount}");
+                Logger.Information($"  - Epics skipped (no values to inherit): {epicsSkippedCount}");
                 Logger.Information($"  - Total descendants updated: {totalDescendantsUpdated}");
                 Logger.Information($"  - Total errors: {totalErrors}");
+                Logger.Information($"  - Rate limit retries: {rateLimitRetriesCount}");
                 Logger.Information($"  - Total time: {totalElapsed:hh\\:mm\\:ss}");
                 Logger.Information($"=================================================================");
                 Logger.Information($"IMPORTANT: This migration script should now be DISABLED");
                 Logger.Information($"=================================================================");
 
-                var message = $"Migration complete: {epicsProcessedCount} Epics, {totalDescendantsUpdated} descendants updated";
+                var message = $"Migration complete: {epicsProcessedCount} Epics ({epicsSkippedCount} skipped), {totalDescendantsUpdated} descendants updated, {rateLimitRetriesCount} rate limit retries";
 
                 // Return with a long interval (1 day) since this is a one-time migration
                 // In production, this script should be disabled after successful execution
