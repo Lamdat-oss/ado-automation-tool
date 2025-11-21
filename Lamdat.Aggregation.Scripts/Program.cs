@@ -73,7 +73,7 @@ try
     
     using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds((int)settings.ScheduledScriptExecutionTimeoutSeconds));
     
-    var result = await AggregationScriptRunnerOneTime.Run(client, Log.Logger, cancellationTokenSource.Token, scriptRunId, lastRun);
+    var result = await OneTimeFieldInheritance.Run(client, Log.Logger, cancellationTokenSource.Token, scriptRunId, lastRun);
     
     if (result.IsSuccess)
     {
