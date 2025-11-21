@@ -70,11 +70,11 @@ namespace Lamdat.Aggregation.Scripts
                     Logger.Warning($"========================================================");
                 }
 
-                // RATE LIMITING: Configure delays to avoid API throttling
-                const int delayBetweenEpicsMs = 500; // 500ms delay between Epic processing
-                const int delayBetweenBatchesMs = 1000; // 1 second delay between update batches
-                const int delayBetweenQueriesMs = 100; // 100ms delay between WIQL queries
-                Logger.Information($"Rate limiting configured: {delayBetweenEpicsMs}ms between Epics, {delayBetweenBatchesMs}ms between batches");
+                // RATE LIMITING: Configure delays to avoid API throttling - INCREASED FOR STABILITY
+                const int delayBetweenEpicsMs = 2000; // INCREASED: 2 seconds delay between Epic processing
+                const int delayBetweenBatchesMs = 3000; // INCREASED: 3 seconds delay between update batches
+                const int delayBetweenQueriesMs = 500; // INCREASED: 500ms delay between WIQL queries
+                Logger.Information($"Rate limiting configured: {delayBetweenEpicsMs}ms between Epics, {delayBetweenBatchesMs}ms between batches, {delayBetweenQueriesMs}ms between queries");
 
                 // Step 1: Find all Epics that have changed since 2024
                 var allEpics = new List<WorkItem>();
@@ -358,7 +358,7 @@ WHERE [System.WorkItemType] = 'Epic'
                         // RATE LIMIT: Batch test case queries with delays
                         var foundTestCases = new ConcurrentBag<int>();
                         var workItemsList = workItemsToCheck.ToList();
-                        const int testCaseBatchSize = 25; // RATE LIMIT: Reduced from 50 to 25
+                        const int testCaseBatchSize = 10; // RATE LIMIT: Reduced from 25 to 10 for better stability
                         
                         for (int i = 0; i < workItemsList.Count; i += testCaseBatchSize)
                         {
@@ -403,11 +403,11 @@ WHERE [System.WorkItemType] = 'Epic'
                                 Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Error querying Test Cases for batch: {ex.Message}");
                                 
                                 // RATE LIMIT: Check if it's a rate limit error and retry with exponential backoff
-                                if (ex.Message.Contains("429") || ex.Message.Contains("TF400733") || ex.Message.Contains("rate limit"))
+                                if (ex.Message.Contains("429") || ex.Message.Contains("TF400733") || ex.Message.Contains("rate limit") || ex.Message.Contains("Unavailable"))
                                 {
                                     Interlocked.Increment(ref rateLimitRetriesCount);
-                                    Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Rate limit detected, waiting 30 seconds before retry...");
-                                    await Task.Delay(30000, CancellationToken);
+                                    Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Rate limit/service unavailable detected, waiting 60 seconds before retry...");
+                                    await Task.Delay(60000, CancellationToken); // INCREASED: 60 seconds wait
                                     
                                     // Retry once
                                     try
@@ -454,7 +454,7 @@ WHERE [System.WorkItemType] = 'Epic'
                         var descendantsUpdated = 0;
                         var errors = 0;
                         var descendantsList = allDescendants.Distinct().ToList();
-                        const int batchSize = 50; // RATE LIMIT: Reduced from 100 to 50
+                        const int batchSize = 25; // RATE LIMIT: Reduced from 50 to 25 for better stability
                         var totalBatches = (descendantsList.Count + batchSize - 1) / batchSize;
 
                         if (descendantsList.Count > 0)
@@ -527,6 +527,10 @@ WHERE [System.WorkItemType] = 'Epic'
                                             Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - ✓ Updated {descendantWorkItem.WorkItemType} {descendantId}: {string.Join(", ", updateDetails)}");
                                             return true;
                                         }
+                                        else
+                                        {
+                                            Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - ⊘ Skipped {descendantWorkItem.WorkItemType} {descendantId} (already has correct values)");
+                                        }
 
                                         return false;
                                     }
@@ -540,10 +544,10 @@ WHERE [System.WorkItemType] = 'Epic'
                                         Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - ✗ Error updating descendant work item {descendantId}: {ex.Message}");
                                         
                                         // RATE LIMIT: Check for rate limit errors
-                                        if (ex.Message.Contains("429") || ex.Message.Contains("TF400733") || ex.Message.Contains("rate limit"))
+                                        if (ex.Message.Contains("429") || ex.Message.Contains("TF400733") || ex.Message.Contains("rate limit") || ex.Message.Contains("Unavailable"))
                                         {
                                             Interlocked.Increment(ref rateLimitRetriesCount);
-                                            Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Rate limit detected on work item {descendantId}, will skip and continue");
+                                            Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Rate limit/service unavailable detected on work item {descendantId}, will skip and continue");
                                         }
                                         
                                         Interlocked.Increment(ref errors);
