@@ -57,6 +57,19 @@ namespace Lamdat.Aggregation.Scripts
                 var migrationStartDate = "2024-01-01";
                 Logger.Information($"Processing all Epics changed since: {migrationStartDate}");
 
+                // ========================================================
+                // TESTING MODE: Uncomment the line below to test with a single Epic ID
+                // ========================================================
+                int? testEpicId = 55427; // Replace 12345 with your Epic ID for testing
+                //int? testEpicId = null; // Comment this line when testing with single Epic
+
+                if (testEpicId.HasValue)
+                {
+                    Logger.Warning($"========================================================");
+                    Logger.Warning($"RUNNING IN TEST MODE - Processing only Epic {testEpicId.Value}");
+                    Logger.Warning($"========================================================");
+                }
+
                 // RATE LIMITING: Configure delays to avoid API throttling
                 const int delayBetweenEpicsMs = 500; // 500ms delay between Epic processing
                 const int delayBetweenBatchesMs = 1000; // 1 second delay between update batches
@@ -78,7 +91,17 @@ namespace Lamdat.Aggregation.Scripts
 
                     string epicsQuery;
 
-                    if (lastEpicId == null)
+                    // TEST MODE: If testEpicId is set, query only that specific Epic
+                    if (testEpicId.HasValue)
+                    {
+                        epicsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
+       [Labs.Category], [Labs.ProjectCode]
+        FROM WorkItems 
+     WHERE [System.WorkItemType] = 'Epic' 
+      AND [System.TeamProject] = 'PCLabs'
+      AND [System.Id] = {testEpicId.Value}";
+                    }
+                    else if (lastEpicId == null)
                     {
                         epicsQuery = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], 
        [Labs.Category], [Labs.ProjectCode]
@@ -117,7 +140,13 @@ WHERE [System.WorkItemType] = 'Epic'
 
                         Logger.Information($"Fetched page with {pageResults.Count} Epics, last ID: {lastEpicId}, total so far: {allEpics.Count}");
 
-                        if (pageResults.Count < pageSize)
+                        // TEST MODE: If testing with single Epic, stop after first page
+                        if (testEpicId.HasValue)
+                        {
+                            hasMoreEpics = false;
+                            Logger.Information($"Test mode: Stopping after fetching Epic {testEpicId.Value}");
+                        }
+                        else if (pageResults.Count < pageSize)
                         {
                             hasMoreEpics = false;
                             Logger.Information($"Received fewer results than page size ({pageResults.Count} < {pageSize}), paging complete");
@@ -340,6 +369,7 @@ WHERE [System.WorkItemType] = 'Epic'
                             // Build a query for this batch
                             var sourceFilter = string.Join(" OR ", batch.Select(id => $"[Source].[System.Id] = {id}"));
                             
+
                             var batchTestCasesQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
    FROM WorkItemLinks
    WHERE ({sourceFilter})
@@ -458,14 +488,6 @@ WHERE [System.WorkItemType] = 'Epic'
                                         if (descendantWorkItem == null)
                                         {
                                             Logger.Warning($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Work item {descendantId} not found");
-                                            return false;
-                                        }
-
-                                        // Skip work items in "Removed" state
-                                        var state = descendantWorkItem.GetField<string>("System.State");
-                                        if (string.Equals(state, "Removed", StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Skipping {descendantWorkItem.WorkItemType} {descendantId} in 'Removed' state");
                                             return false;
                                         }
 
@@ -617,7 +639,14 @@ WHERE [System.WorkItemType] = 'Epic'
                 var totalElapsed = DateTime.Now - startTime;
 
                 Logger.Information($"=================================================================");
-                Logger.Information($"HISTORICAL MIGRATION COMPLETED");
+                if (testEpicId.HasValue)
+                {
+                    Logger.Information($"TEST MODE MIGRATION COMPLETED (Epic {testEpicId.Value} only)");
+                }
+                else
+                {
+                    Logger.Information($"HISTORICAL MIGRATION COMPLETED");
+                }
                 Logger.Information($"=================================================================");
                 Logger.Information($"  - Total Epics found: {allEpics.Count}");
                 Logger.Information($"  - Epics processed: {epicsProcessedCount - epicsSkippedCount}");
@@ -627,10 +656,15 @@ WHERE [System.WorkItemType] = 'Epic'
                 Logger.Information($"  - Rate limit retries: {rateLimitRetriesCount}");
                 Logger.Information($"  - Total time: {totalElapsed:hh\\:mm\\:ss}");
                 Logger.Information($"=================================================================");
-                Logger.Information($"IMPORTANT: This migration script should now be DISABLED");
-                Logger.Information($"=================================================================");
+                if (!testEpicId.HasValue)
+                {
+                    Logger.Information($"IMPORTANT: This migration script should now be DISABLED");
+                    Logger.Information($"=================================================================");
+                }
 
-                var message = $"Migration complete: {epicsProcessedCount} Epics ({epicsSkippedCount} skipped), {totalDescendantsUpdated} descendants updated, {rateLimitRetriesCount} rate limit retries";
+                var message = testEpicId.HasValue 
+                    ? $"Test mode complete: Epic {testEpicId.Value}, {totalDescendantsUpdated} descendants updated"
+                    : $"Migration complete: {epicsProcessedCount} Epics ({epicsSkippedCount} skipped), {totalDescendantsUpdated} descendants updated, {rateLimitRetriesCount} rate limit retries";
 
                 // Return with a long interval (1 day) since this is a one-time migration
                 // In production, this script should be disabled after successful execution
