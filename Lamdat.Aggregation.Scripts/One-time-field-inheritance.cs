@@ -60,8 +60,8 @@ namespace Lamdat.Aggregation.Scripts
                 // ========================================================
                 // TESTING MODE: Uncomment the line below to test with a single Epic ID
                 // ========================================================
-                int? testEpicId = 55427; // Replace 12345 with your Epic ID for testing
-                //int? testEpicId = null; // Comment this line when testing with single Epic
+                //int? testEpicId = 85720; // Replace 12345 with your Epic ID for testing
+                int? testEpicId = null; // Comment this line when testing with single Epic
 
                 if (testEpicId.HasValue)
                 {
@@ -170,6 +170,7 @@ WHERE [System.WorkItemType] = 'Epic'
                 // Step 2: Process each Epic and update all its descendants
                 // Use thread-safe counters for parallel processing
                 var totalDescendantsUpdated = 0;
+                var totalDescendantsSkipped = 0;
                 var totalErrors = 0;
                 var epicsProcessedCount = 0;
                 var epicsSkippedCount = 0;
@@ -220,7 +221,7 @@ WHERE [System.WorkItemType] = 'Epic'
                         // Step 2.1: Get all descendant work items recursively
                         var allDescendants = new ConcurrentBag<int>();
                         var descendantProcessingStart = DateTime.UtcNow;
-                        Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Starting recursive descendant collection");
+                        Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Starting recursive descendant collection");
 
                         // Get direct children (Features, and potentially PBIs, Bugs, Glitches, Tasks)
                         var directDescendantsQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
@@ -234,7 +235,7 @@ WHERE [System.WorkItemType] = 'Epic'
 
                         var directDescendants = await Client.QueryWorkItemsByWiql(directDescendantsQuery);
                         await Task.Delay(delayBetweenQueriesMs, CancellationToken); // RATE LIMIT
-                        Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Found {directDescendants.Count} direct descendants");
+                        Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Found {directDescendants.Count} direct descendants");
 
                         // Check cancellation
                         CancellationToken.ThrowIfCancellationRequested();
@@ -251,14 +252,16 @@ WHERE [System.WorkItemType] = 'Epic'
                         
                         if (featuresAndPBIs.Count > 0)
                         {
-                            Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying children for {featuresAndPBIs.Count} Features/PBIs sequentially");
+                            Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying children for {featuresAndPBIs.Count} Features/PBIs sequentially (this may take a while)...");
                             
+                            var featureCount = 0;
                             // RATE LIMIT: Changed to sequential processing with delays
                             foreach (var descendant in featuresAndPBIs)
                             {
                                 CancellationToken.ThrowIfCancellationRequested();
                                 
-                                Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying children for {descendant.WorkItemType} {descendant.Id}");
+                                featureCount++;
+                                Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - [{featureCount}/{featuresAndPBIs.Count}] Querying children for {descendant.WorkItemType} {descendant.Id}");
                                 var childrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
            FROM WorkItemLinks
     WHERE [Source].[System.Id] = {descendant.Id}
@@ -269,7 +272,7 @@ WHERE [System.WorkItemType] = 'Epic'
 
                                 var children = await Client.QueryWorkItemsByWiql(childrenQuery);
                                 await Task.Delay(delayBetweenQueriesMs, CancellationToken); // RATE LIMIT
-                                Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Found {children.Count} children for {descendant.WorkItemType} {descendant.Id}");
+                                Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - [{featureCount}/{featuresAndPBIs.Count}] Found {children.Count} children for {descendant.WorkItemType} {descendant.Id}");
 
                                 foreach (var child in children)
                                 {
@@ -283,6 +286,11 @@ WHERE [System.WorkItemType] = 'Epic'
                                     c.WorkItemType == "Glitch").ToList();
 
                                 // Query grandchildren sequentially
+                                if (pbisBugsGlitches.Count > 0)
+                                {
+                                    Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - [{featureCount}/{featuresAndPBIs.Count}] Querying grandchildren for {pbisBugsGlitches.Count} PBIs/Bugs/Glitches");
+                                }
+                                
                                 foreach (var child in pbisBugsGlitches)
                                 {
                                     CancellationToken.ThrowIfCancellationRequested();
@@ -306,6 +314,8 @@ WHERE [System.WorkItemType] = 'Epic'
                                     }
                                 }
                             }
+                            
+                            Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Completed querying {featuresAndPBIs.Count} Features/PBIs and their descendants");
                         }
 
                         // Process direct Bugs/Glitches (though not standard hierarchy)
@@ -314,14 +324,16 @@ WHERE [System.WorkItemType] = 'Epic'
                         
                         if (directBugsGlitches.Count > 0)
                         {
-                            Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying task children for {directBugsGlitches.Count} Bugs/Glitches sequentially");
+                            Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying task children for {directBugsGlitches.Count} Bugs/Glitches sequentially");
                             
+                            var bugCount = 0;
                             // RATE LIMIT: Changed to sequential processing
                             foreach (var descendant in directBugsGlitches)
                             {
                                 CancellationToken.ThrowIfCancellationRequested();
                                 
-                                Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Querying task children for {descendant.WorkItemType} {descendant.Id}");
+                                bugCount++;
+                                Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - [{bugCount}/{directBugsGlitches.Count}] Querying task children for {descendant.WorkItemType} {descendant.Id}");
                                 var taskChildrenQuery = $@"SELECT [Target].[System.Id], [Target].[System.WorkItemType]
      FROM WorkItemLinks
  WHERE [Source].[System.Id] = {descendant.Id}
@@ -332,17 +344,19 @@ WHERE [System.WorkItemType] = 'Epic'
 
                                 var taskChildren = await Client.QueryWorkItemsByWiql(taskChildrenQuery);
                                 await Task.Delay(delayBetweenQueriesMs, CancellationToken); // RATE LIMIT
-                                Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Found {taskChildren.Count} task children for {descendant.WorkItemType} {descendant.Id}");
+                                Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - [{bugCount}/{directBugsGlitches.Count}] Found {taskChildren.Count} task children for {descendant.WorkItemType} {descendant.Id}");
 
                                 foreach (var task in taskChildren)
                                 {
                                     allDescendants.Add(task.Id);
                                 }
                             }
+                            
+                            Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Completed querying {directBugsGlitches.Count} Bugs/Glitches and their task children");
                         }
 
                         var descendantProcessingDuration = DateTime.UtcNow - descendantProcessingStart;
-                        Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Completed recursive descendant collection in {descendantProcessingDuration.TotalSeconds:F2} seconds");
+                        Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - Completed recursive descendant collection in {descendantProcessingDuration.TotalSeconds:F2} seconds");
 
                         // Check cancellation before test case processing
                         CancellationToken.ThrowIfCancellationRequested();
@@ -452,6 +466,7 @@ WHERE [System.WorkItemType] = 'Epic'
 
                         // Step 2.2: Update each descendant work item with inherited fields (in parallel batches for better performance)
                         var descendantsUpdated = 0;
+                        var descendantsSkipped = 0;
                         var errors = 0;
                         var descendantsList = allDescendants.Distinct().ToList();
                         const int batchSize = 25; // RATE LIMIT: Reduced from 50 to 25 for better stability
@@ -529,6 +544,7 @@ WHERE [System.WorkItemType] = 'Epic'
                                         }
                                         else
                                         {
+                                            Interlocked.Increment(ref descendantsSkipped);
                                             Logger.Debug($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - ⊘ Skipped {descendantWorkItem.WorkItemType} {descendantId} (already has correct values)");
                                         }
 
@@ -582,10 +598,11 @@ WHERE [System.WorkItemType] = 'Epic'
                         }
 
                         Interlocked.Add(ref totalDescendantsUpdated, descendantsUpdated);
+                        Interlocked.Add(ref totalDescendantsSkipped, descendantsSkipped);
                         Interlocked.Add(ref totalErrors, errors);
                         var processedCount = Interlocked.Increment(ref epicsProcessedCount);
 
-                        Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - ✓ Completed - updated {descendantsUpdated} descendants, {errors} errors (Overall progress: {processedCount}/{allEpics.Count} epics)");
+                        Logger.Information($"[{epicNumber}/{allEpics.Count}] Epic {epic.Id} - ✓ Completed - updated {descendantsUpdated} descendants, skipped {descendantsSkipped} (already correct), {errors} errors (Overall progress: {processedCount}/{allEpics.Count} epics)");
 
                         // Log progress every 10 Epics
                         if (processedCount % 10 == 0)
@@ -599,6 +616,7 @@ WHERE [System.WorkItemType] = 'Epic'
                             Logger.Information($"Time elapsed: {elapsed:hh\\:mm\\:ss}");
                             Logger.Information($"Estimated remaining: {estimatedRemaining:hh\\:mm\\:ss}");
                             Logger.Information($"Total descendants updated so far: {totalDescendantsUpdated}");
+                            Logger.Information($"Total descendants skipped so far: {totalDescendantsSkipped}");
                             Logger.Information($"Rate limit retries so far: {rateLimitRetriesCount}");
                             Logger.Information($"========================================================");
                         }
@@ -656,6 +674,7 @@ WHERE [System.WorkItemType] = 'Epic'
                 Logger.Information($"  - Epics processed: {epicsProcessedCount - epicsSkippedCount}");
                 Logger.Information($"  - Epics skipped (no values to inherit): {epicsSkippedCount}");
                 Logger.Information($"  - Total descendants updated: {totalDescendantsUpdated}");
+                Logger.Information($"  - Total descendants skipped (already correct): {totalDescendantsSkipped}");
                 Logger.Information($"  - Total errors: {totalErrors}");
                 Logger.Information($"  - Rate limit retries: {rateLimitRetriesCount}");
                 Logger.Information($"  - Total time: {totalElapsed:hh\\:mm\\:ss}");
@@ -667,8 +686,8 @@ WHERE [System.WorkItemType] = 'Epic'
                 }
 
                 var message = testEpicId.HasValue 
-                    ? $"Test mode complete: Epic {testEpicId.Value}, {totalDescendantsUpdated} descendants updated"
-                    : $"Migration complete: {epicsProcessedCount} Epics ({epicsSkippedCount} skipped), {totalDescendantsUpdated} descendants updated, {rateLimitRetriesCount} rate limit retries";
+                    ? $"Test mode complete: Epic {testEpicId.Value}, {totalDescendantsUpdated} updated, {totalDescendantsSkipped} skipped"
+                    : $"Migration complete: {epicsProcessedCount} Epics ({epicsSkippedCount} skipped), {totalDescendantsUpdated} descendants updated, {totalDescendantsSkipped} skipped, {rateLimitRetriesCount} rate limit retries";
 
                 // Return with a long interval (1 day) since this is a one-time migration
                 // In production, this script should be disabled after successful execution
