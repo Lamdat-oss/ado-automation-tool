@@ -1,0 +1,62 @@
+{
+    "manifestVersion": 1,
+    "id": "ado-automation-tool",
+    "version": "0.7.0",
+    "name": "ADO Automation Tool",
+    "description": "Automate Azure DevOps with C# scripts triggered by webhooks or schedules.",
+    "publisher": "Lamdat",
+    "content": {
+        "details": {
+            "path": "overview.md"
+        }
+    },
+    "links": {
+        "getstarted": {
+            "uri": "https://github.com/lamdat-tech/ado-automation-tool"
+        },
+        "support": {
+            "uri": "https://github.com/lamdat-tech/ado-automation-tool/issues"
+        },
+        "repository": {
+            "uri": "https://github.com/lamdat-tech/ado-automation-tool"
+        }
+    },
+    "targets": [
+        {
+            "id": "Microsoft.VisualStudio.Services"
+        }
+    ],
+    "icons": {
+        "default": "images/icon.png"
+    },
+    "categories": [
+        "Azure Boards"
+    ],
+    "files": [
+        {
+            "path": "overview.md",
+            "addressable": true
+        },
+        {
+            "path": "index.html",
+            "addressable": true
+        },
+        {
+            "path": "images",
+            "addressable": true
+        }
+    ],
+    "contributions": [
+        {
+            "id": "ado-automation-hub",
+            "type": "ms.vss-web.hub",
+            "targets": [
+                "ms.vss-work-web.work-hub-group"
+            ],
+            "properties": {
+                "name": "ADO Automation",
+                "uri": "index.html"
+            }
+        }
+    ]
+}
