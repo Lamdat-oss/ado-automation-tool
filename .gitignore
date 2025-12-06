@@ -140,3 +140,5 @@ _NCrunch*
 /logs/*.txt
 /Src/Lamdat.ADOAutomationTool/logs
 node_modules
+
+*.vsix
