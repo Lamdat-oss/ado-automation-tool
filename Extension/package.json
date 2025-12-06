@@ -1,0 +1,11 @@
+{
+  "name": "ado-automation-tool-extension",
+  "version": "0.0.1",
+  "description": "Azure DevOps Extension for ADO Automation Tool",
+  "scripts": {
+    "package": "tfx extension create --manifest-globs vss-extension.json"
+  },
+  "dependencies": {
+    "tfx-cli": "^0.12.0"
+  }
+}
