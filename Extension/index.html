@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADO Automation Tool</title>
+    <style>
+        body {
+            font-family: "Segoe UI", "Segoe", Tahoma, Helvetica, Arial, sans-serif;
+            padding: 20px;
+            color: #222;
+            line-height: 1.6;
+            max-width: 900px;
+        }
+        h1 { color: #0078d4; margin-bottom: 10px; }
+        h2 { border-bottom: 1px solid #eaeaea; padding-bottom: 10px; margin-top: 30px; color: #333; }
+        h3 { margin-top: 20px; color: #444; font-size: 1.1em; }
+        
+        code { 
+            background-color: #f3f4f5; 
+            padding: 2px 5px; 
+            border-radius: 3px; 
+            font-family: Consolas, "Courier New", monospace; 
+            color: #c7254e;
+            font-size: 0.9em;
+        }
+        
+        pre { 
+            background-color: #f8f9fa; 
+            padding: 15px; 
+            border-radius: 4px; 
+            overflow-x: auto; 
+            border: 1px solid #e9ecef;
+        }
+        
+        pre code {
+            background-color: transparent;
+            color: #333;
+            padding: 0;
+        }
+
+        .step { margin-bottom: 10px; }
+        .step-number { font-weight: bold; color: #0078d4; margin-right: 8px; }
+        
+        .info-box {
+            background-color: #eef6fb;
+            border-left: 4px solid #0078d4;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 0 4px 4px 0;
+        }
+
+        ul { margin-top: 5px; }
+        li { margin-bottom: 5px; }
+        
+        a { color: #0078d4; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <h1>ADO Automation Tool</h1>
+    <p>The <strong>ADO Automation Tool</strong> is a powerful web API designed to automate your Azure DevOps workflows. It listens to webhooks and executes C# scripts to enforce rules, sync data, or perform complex logic that goes beyond standard policies.</p>
+
+    <div class="info-box">
+        <strong>Note:</strong> This extension provides documentation and guidance. The automation engine itself must be deployed separately (e.g., via Docker).
+    </div>
+
+    <h2>1. Configuration</h2>
+    <p>To trigger your automation scripts, you need to configure Service Hooks in this project to point to your deployed tool.</p>
+
+    <div class="step"><span class="step-number">1.</span> Go to <strong>Project Settings</strong> > <strong>Service Hooks</strong>.</div>
+    <div class="step"><span class="step-number">2.</span> Click the <strong>+</strong> button to create a new subscription.</div>
+    <div class="step"><span class="step-number">3.</span> Select <strong>Web Hooks</strong> and click <strong>Next</strong>.</div>
+    <div class="step"><span class="step-number">4.</span> Choose a trigger event (e.g., <em>Work item updated</em>) and set filters. Click <strong>Next</strong>.</div>
+    <div class="step"><span class="step-number">5.</span> In the Action settings:
+        <ul>
+            <li><strong>URL:</strong> Enter the URL of your deployed tool (e.g., <code>https://your-tool-instance.com/WebHook</code>).</li>
+            <li><strong>HTTP Headers:</strong> If you configured a shared key, add it here (e.g., <code>X-Shared-Key: your-secret-key</code>).</li>
+        </ul>
+    </div>
+
+    <h2>2. Writing Rules</h2>
+    <p>Scripts are C# files (<code>.rule</code>) that are executed when an event occurs. You have direct access to the Work Item context.</p>
+
+    <h3>Available Context Objects</h3>
+    <ul>
+        <li><code>Self</code>: The current Work Item object. You can read and modify fields directly.</li>
+        <li><code>SelfChanges</code>: A dictionary containing only the fields that changed in this event.</li>
+        <li><code>Client</code>: The Azure DevOps client for fetching other items, saving changes, or querying data.</li>
+        <li><code>Logger</code>: Use this to write logs to the tool's output.</li>
+    </ul>
+
+    <h3>Example Script</h3>
+    <pre><code>// Log the event
+Logger.Information($"Processing Work Item {Self.Id}: {Self.Title}");
+
+// Update a field automatically
+Self.Fields["System.Description"] = $"Updated by automation at {DateTime.Now}";
+
+// Check parent details
+if(Self.Parent != null) {
+    var parent = await Client.GetWorkItem(Self.Parent.RelatedWorkItemId);
+    Logger.Information($"Parent Title: {parent.Title}");
+    
+    // Logic based on parent state
+    if (parent.State == "Closed") {
+        Logger.Warning("Parent is closed!");
+    }
+}</code></pre>
+
+    <h2>3. Scheduled Scripts</h2>
+    <p>In addition to webhooks, the tool supports <strong>Scheduled Scripts</strong> for periodic tasks (e.g., nightly syncs, cleanup).</p>
+    <ul>
+        <li>Scripts run on a configurable interval (default: 1 hour).</li>
+        <li>Access to <code>LastRun</code> time allows for incremental processing.</li>
+        <li>Scripts can return a custom interval for the next run.</li>
+    </ul>
+
+    <h2>More Information</h2>
+    <p>For deployment instructions, full API reference, and advanced configuration options, please visit the official repository:</p>
+    <p>
+        <a href="https://github.com/lamdat-tech/ado-automation-tool" target="_blank"><strong>View on GitHub &rarr;</strong></a>
+    </p>
+</body>
+</html>
