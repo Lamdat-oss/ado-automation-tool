@@ -1,0 +1,106 @@
+// Parent Title Sync on Parent Link Change
+// This script updates the "Parent Title" field when a parent link is added or updated
+// 
+// Functionality:
+// 1. Triggers when a work item of type Product Backlog Item, Operation, or Bug is updated
+// 2. Detects when a parent link is added (via RelationChanges)
+// 3. Retrieves the parent work item's title
+// 4. Sets the "Parent Title" custom field to the parent's title
+//
+// Supported Work Item Types: Product Backlog Item, Operation, Bug
+
+cancellationToken.ThrowIfCancellationRequested();
+
+// Only process work item updates
+if (EventType != "workitem.updated")
+{
+    return;
+}
+
+Logger.Information($"Processing parent title sync for {Self.WorkItemType} {Self.Id}: {Self.Title}");
+
+try
+{
+    // Step 1: Check if this is a supported work item type
+    var supportedTypes = new[] { "Product Backlog Item", "Operation", "Bug" };
+    
+    if (!supportedTypes.Contains(Self.WorkItemType))
+    {
+        Logger.Debug($"Work item type '{Self.WorkItemType}' is not supported for parent title sync - skipping");
+        return;
+    }
+
+    // Step 2: Check if a parent link was added or changed
+    bool parentLinkChanged = false;
+    
+    if (RelationChanges != null)
+    {
+        // Check if a parent link was added
+        if (RelationChanges.Added != null && RelationChanges.Added.Any(r => 
+            r.Rel == "System.LinkTypes.Hierarchy-Reverse" && 
+            r.Attributes?.ContainsKey("name") == true && 
+            r.Attributes["name"]?.ToString() == "Parent"))
+        {
+            Logger.Information($"Parent link added to {Self.WorkItemType} {Self.Id}");
+            parentLinkChanged = true;
+        }
+        
+        // Check if a parent link was removed (we should clear the parent title)
+        if (RelationChanges.Removed != null && RelationChanges.Removed.Any(r => 
+            r.Rel == "System.LinkTypes.Hierarchy-Reverse" && 
+            r.Attributes?.ContainsKey("name") == true && 
+            r.Attributes["name"]?.ToString() == "Parent"))
+        {
+            Logger.Information($"Parent link removed from {Self.WorkItemType} {Self.Id}");
+            
+            // Clear the parent title field
+            Self.SetField("Custom.ParentTitle", "");
+            await Client.SaveWorkItem(Self);
+            Logger.Information($"Cleared Parent Title for {Self.WorkItemType} {Self.Id}");
+            return;
+        }
+    }
+
+    // If no parent link changes detected, check if there's an existing parent
+    if (!parentLinkChanged)
+    {
+        Logger.Debug($"No parent link changes detected for {Self.WorkItemType} {Self.Id} - skipping");
+        return;
+    }
+
+    // Step 3: Get the parent work item
+    if (Self.Parent == null)
+    {
+        Logger.Debug($"{Self.WorkItemType} {Self.Id} has no parent after link change - skipping");
+        return;
+    }
+
+    var parentWorkItem = await Client.GetWorkItem(Self.Parent.RelatedWorkItemId);
+    
+    if (parentWorkItem == null || parentWorkItem.Id == 0)
+    {
+        Logger.Warning($"Could not retrieve parent work item {Self.Parent.RelatedWorkItemId} for {Self.WorkItemType} {Self.Id}");
+        return;
+    }
+
+    Logger.Debug($"Parent of {Self.WorkItemType} {Self.Id} is {parentWorkItem.WorkItemType} {parentWorkItem.Id}: {parentWorkItem.Title}");
+
+    // Step 4: Update the Parent Title field
+    var parentTitle = parentWorkItem.Title;
+    var currentParentTitle = Self.GetField<string>("Custom.ParentTitle");
+
+    if (currentParentTitle != parentTitle)
+    {
+        Self.SetField("Custom.ParentTitle", parentTitle);
+        await Client.SaveWorkItem(Self);
+        Logger.Information($"Updated Parent Title to '{parentTitle}' for {Self.WorkItemType} {Self.Id}");
+    }
+    else
+    {
+        Logger.Debug($"Parent Title already set to '{parentTitle}' for {Self.WorkItemType} {Self.Id}");
+    }
+}
+catch (Exception ex)
+{
+    Logger.Error(ex, $"Error in parent title sync for {Self.WorkItemType} {Self.Id}");
+}

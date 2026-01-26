@@ -1,0 +1,328 @@
+// Sprint Change Task Duplication Script
+// This script handles work items (PBI, Bug, Operation Entity) moved to a different sprint
+// 
+// Functionality:
+// 1. When a PBI/Bug/Operation Entity is moved to another sprint
+// 2. For each child task NOT in "Done" state:
+//    - Check if a duplicate was already created (using custom field)
+//    - If duplicate exists and not in progress, update its details
+//    - If no duplicate exists, create a new task with the new sprint
+//    - Copy all relevant fields except completed time
+// 3. Close the original task after duplication
+//
+// Custom Field Required: "Labs.DuplicatedFromTaskId" (Integer field in Azure DevOps)
+
+cancellationToken.ThrowIfCancellationRequested();
+
+// Only process work item updates
+if (EventType != "workitem.updated")
+{
+    return;
+}
+
+Logger.Information($"Processing sprint change task duplication for {Self.WorkItemType} {Self.Id}: {Self.Title}");
+
+try
+{
+    // Step 1: Check if this is a relevant work item type
+    var relevantTypes = new[] { "Product Backlog Item", "Bug", "Operation Entity" };
+    
+    if (!relevantTypes.Contains(Self.WorkItemType))
+    {
+        Logger.Debug($"Work item type '{Self.WorkItemType}' is not relevant for task duplication - skipping");
+        return;
+    }
+
+    // Step 2: Check if the iteration path changed
+    if (!SelfChanges.ContainsKey("System.IterationPath"))
+    {
+        Logger.Debug($"Iteration path did not change for {Self.WorkItemType} {Self.Id} - skipping");
+        return;
+    }
+
+    var iterationChange = SelfChanges["System.IterationPath"];
+    var oldIteration = iterationChange.OldValue?.ToString() ?? "";
+    var newIteration = iterationChange.NewValue?.ToString() ?? Self.GetField<string>("System.IterationPath", "");
+    
+    Logger.Information($"{Self.WorkItemType} {Self.Id} moved from iteration '{oldIteration}' to '{newIteration}'");
+
+    // Step 3: Get all child tasks
+    if (Self.Children == null || Self.Children.Count == 0)
+    {
+        Logger.Information($"{Self.WorkItemType} {Self.Id} has no child tasks - nothing to duplicate");
+        return;
+    }
+
+    Logger.Information($"Found {Self.Children.Count} child items for {Self.WorkItemType} {Self.Id}");
+
+    int tasksProcessed = 0;
+    int tasksCreated = 0;
+    int tasksUpdated = 0;
+    int tasksClosed = 0;
+
+    // Step 4: Process each child
+    foreach (var childRelation in Self.Children)
+    {
+        try
+        {
+            var childTask = await Client.GetWorkItem(childRelation.RelatedWorkItemId);
+            
+            if (childTask == null || childTask.Id == 0)
+            {
+                Logger.Warning($"Could not retrieve child work item {childRelation.RelatedWorkItemId}");
+                continue;
+            }
+
+            // Only process Task work items
+            if (childTask.WorkItemType != "Task")
+            {
+                Logger.Debug($"Child {childTask.Id} is not a Task (type: {childTask.WorkItemType}) - skipping");
+                continue;
+            }
+
+            // Skip tasks already in "Done" state
+            var taskState = childTask.GetField<string>("System.State", "");
+            if (taskState.Equals("Done", StringComparison.OrdinalIgnoreCase))
+            {
+                Logger.Debug($"Task {childTask.Id} is already in 'Done' state - skipping");
+                continue;
+            }
+
+            Logger.Information($"Processing Task {childTask.Id}: '{childTask.Title}' (State: {taskState})");
+
+            // Check if we already duplicated this task
+            var duplicatedTaskId = await FindDuplicatedTask(childTask.Id, newIteration);
+            
+            WorkItem duplicatedTask = null;
+            
+            if (duplicatedTaskId.HasValue)
+            {
+                // Duplicate already exists
+                duplicatedTask = await Client.GetWorkItem(duplicatedTaskId.Value);
+                
+                if (duplicatedTask != null && duplicatedTask.Id > 0)
+                {
+                    var duplicateState = duplicatedTask.GetField<string>("System.State", "");
+                    
+                    // Only update if not in progress
+                    if (!duplicateState.Equals("In Progress", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Logger.Information($"Found existing duplicate Task {duplicatedTask.Id} (State: {duplicateState}) - updating details");
+                        await UpdateTaskDetails(duplicatedTask, childTask, newIteration);
+                        tasksUpdated++;
+                    }
+                    else
+                    {
+                        Logger.Information($"Duplicate Task {duplicatedTask.Id} is already 'In Progress' - skipping update");
+                    }
+                }
+            }
+            else
+            {
+                // No duplicate exists - create a new one
+                Logger.Information($"No duplicate found for Task {childTask.Id} - creating new task");
+                duplicatedTask = await CreateDuplicateTask(childTask, newIteration, Self.Id);
+                
+                if (duplicatedTask != null && duplicatedTask.Id > 0)
+                {
+                    tasksCreated++;
+                    Logger.Information($"Successfully created duplicate Task {duplicatedTask.Id} for original Task {childTask.Id}");
+                }
+            }
+
+            // Close the original task
+            if (duplicatedTask != null && duplicatedTask.Id > 0)
+            {
+                await CloseOriginalTask(childTask);
+                tasksClosed++;
+            }
+
+            tasksProcessed++;
+        }
+        catch (Exception childEx)
+        {
+            Logger.Error(childEx, $"Error processing child work item {childRelation.RelatedWorkItemId}");
+        }
+    }
+
+    Logger.Information($"Sprint change task duplication completed for {Self.WorkItemType} {Self.Id}: " +
+                      $"{tasksProcessed} tasks processed, {tasksCreated} created, {tasksUpdated} updated, {tasksClosed} closed");
+}
+catch (Exception ex)
+{
+    Logger.Error(ex, $"Error in sprint change task duplication for {Self.WorkItemType} {Self.Id}");
+}
+
+// Helper method: Find if a duplicate task already exists for this original task in the new iteration
+async Task<int?> FindDuplicatedTask(int originalTaskId, string targetIteration)
+{
+    try
+    {
+        // Query for tasks that have this task ID in their "DuplicatedFromTaskId" field
+        // and are in the target iteration
+        var wiqlQuery = $@"
+            SELECT [System.Id] 
+            FROM WorkItems 
+            WHERE [System.WorkItemType] = 'Task'
+              AND [Labs.DuplicatedFromTaskId] = {originalTaskId}
+              AND [System.IterationPath] = '{targetIteration}'
+              AND [System.TeamProject] = '{Self.Project}'";
+
+        var results = await Client.QueryWorkItemsByWiql(wiqlQuery, 1);
+        
+        if (results != null && results.Count > 0)
+        {
+            Logger.Debug($"Found existing duplicate task {results[0].Id} for original task {originalTaskId}");
+            return results[0].Id;
+        }
+        
+        return null;
+    }
+    catch (Exception ex)
+    {
+        Logger.Warning(ex, $"Error querying for duplicate task of {originalTaskId}");
+        return null;
+    }
+}
+
+// Helper method: Create a duplicate task with the new iteration
+async Task<WorkItem> CreateDuplicateTask(WorkItem originalTask, string newIteration, int parentId)
+{
+    try
+    {
+        // Fields to copy from original task
+        var fieldsToCopy = new Dictionary<string, object?>
+        {
+            ["System.Title"] = originalTask.Title,
+            ["System.Description"] = originalTask.GetField<string>("System.Description"),
+            ["System.IterationPath"] = newIteration,
+            ["System.AreaPath"] = originalTask.GetField<string>("System.AreaPath"),
+            ["System.Tags"] = originalTask.GetField<string>("System.Tags"),
+            ["Microsoft.VSTS.Scheduling.RemainingWork"] = originalTask.GetField<double?>("Microsoft.VSTS.Scheduling.RemainingWork"),
+            ["Microsoft.VSTS.Scheduling.OriginalEstimate"] = originalTask.GetField<double?>("Microsoft.VSTS.Scheduling.OriginalEstimate"),
+            ["Microsoft.VSTS.Common.Priority"] = originalTask.GetField<int?>("Microsoft.VSTS.Common.Priority"),
+            ["Microsoft.VSTS.Common.Activity"] = originalTask.GetField<string>("Microsoft.VSTS.Common.Activity"),
+            
+            // Custom fields (if exist)
+            ["Labs.Category"] = originalTask.GetField<string>("Labs.Category"),
+            ["Labs.ProjectCode"] = originalTask.GetField<string>("Labs.ProjectCode"),
+            
+            // Mark this as a duplicate
+            ["Labs.DuplicatedFromTaskId"] = originalTask.Id
+        };
+
+        // Remove null values to avoid errors
+        var cleanedFields = fieldsToCopy.Where(kvp => kvp.Value != null).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+        // Create the new task
+        var newTask = await Client.CreateWorkItem("Task", cleanedFields);
+        
+        if (newTask == null || newTask.Id == 0)
+        {
+            Logger.Error($"Failed to create duplicate task for original task {originalTask.Id}");
+            return null;
+        }
+
+        // Link the new task to the parent (PBI/Bug/Operation Entity)
+        var parentRelation = new WorkItemRelation
+        {
+            Rel = "System.LinkTypes.Hierarchy-Reverse",
+            Url = $"https://dev.azure.com/{Self.Project}/_apis/wit/workItems/{parentId}",
+            Attributes = new Dictionary<string, object> { ["name"] = "Parent" }
+        };
+
+        await Client.SaveWorkItemRelations(newTask, new List<WorkItemRelation> { parentRelation });
+        
+        Logger.Information($"Created duplicate Task {newTask.Id} from original Task {originalTask.Id} in iteration '{newIteration}'");
+        
+        return newTask;
+    }
+    catch (Exception ex)
+    {
+        Logger.Error(ex, $"Error creating duplicate task for {originalTask.Id}");
+        return null;
+    }
+}
+
+// Helper method: Update an existing duplicate task with latest details from original
+async Task UpdateTaskDetails(WorkItem duplicateTask, WorkItem originalTask, string newIteration)
+{
+    try
+    {
+        bool updated = false;
+
+        // Update key fields from original task
+        var fieldsToUpdate = new Dictionary<string, string>
+        {
+            ["System.Description"] = originalTask.GetField<string>("System.Description"),
+            ["System.Tags"] = originalTask.GetField<string>("System.Tags"),
+            ["Microsoft.VSTS.Common.Activity"] = originalTask.GetField<string>("Microsoft.VSTS.Common.Activity")
+        };
+
+        foreach (var field in fieldsToUpdate)
+        {
+            var newValue = field.Value;
+            var currentValue = duplicateTask.GetField<string>(field.Key);
+            
+            if (currentValue != newValue)
+            {
+                duplicateTask.SetField(field.Key, newValue);
+                updated = true;
+            }
+        }
+
+        // Update numeric fields
+        var remainingWork = originalTask.GetField<double?>("Microsoft.VSTS.Scheduling.RemainingWork");
+        if (remainingWork.HasValue)
+        {
+            duplicateTask.SetField("Microsoft.VSTS.Scheduling.RemainingWork", remainingWork.Value);
+            updated = true;
+        }
+
+        if (updated)
+        {
+            await Client.SaveWorkItem(duplicateTask);
+            Logger.Information($"Updated duplicate Task {duplicateTask.Id} with latest details from original Task {originalTask.Id}");
+        }
+        else
+        {
+            Logger.Debug($"No updates needed for duplicate Task {duplicateTask.Id}");
+        }
+    }
+    catch (Exception ex)
+    {
+        Logger.Error(ex, $"Error updating duplicate task {duplicateTask.Id}");
+    }
+}
+
+// Helper method: Close the original task
+async Task CloseOriginalTask(WorkItem originalTask)
+{
+    try
+    {
+        // Set state to "Closed" or "Done" based on your process template
+        // Most templates use "Closed" for tasks
+        var currentState = originalTask.GetField<string>("System.State", "");
+        
+        if (currentState.Equals("Closed", StringComparison.OrdinalIgnoreCase) || 
+            currentState.Equals("Done", StringComparison.OrdinalIgnoreCase))
+        {
+            Logger.Debug($"Task {originalTask.Id} is already closed (State: {currentState})");
+            return;
+        }
+
+        originalTask.State = "Closed";
+        
+        // Add a comment explaining why it was closed
+        var closureReason = $"Task duplicated to new sprint. See duplicate task in iteration '{Self.GetField<string>("System.IterationPath")}'.";
+        originalTask.SetField("System.History", closureReason);
+        
+        await Client.SaveWorkItem(originalTask);
+        
+        Logger.Information($"Closed original Task {originalTask.Id} after duplication");
+    }
+    catch (Exception ex)
+    {
+        Logger.Error(ex, $"Error closing original task {originalTask.Id}");
+    }
+}

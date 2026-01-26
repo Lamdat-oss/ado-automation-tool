@@ -1,0 +1,218 @@
+// Approved PBI Task Creation Script
+// This script handles Product Backlog Items moved to "Approved" status with a sprint allocated
+// 
+// Functionality:
+// 1. When a PBI is moved to "Approved" status
+// 2. Verify it has a sprint allocated (not the root iteration)
+// 3. Check existing child tasks to avoid duplicates
+// 4. Create "Development" and "Testing" tasks if they don't exist
+// 5. Copy "Development Effort Estimation" from PBI to both Original Estimate and Remaining Work
+
+cancellationToken.ThrowIfCancellationRequested();
+
+// Only process work item updates
+if (EventType != "workitem.updated")
+{
+    return;
+}
+
+Logger.Information($"Processing approved PBI task creation for {Self.WorkItemType} {Self.Id}: {Self.Title}");
+
+try
+{
+    // Step 1: Check if this is a Product Backlog Item
+    if (Self.WorkItemType != "Product Backlog Item")
+    {
+        Logger.Debug($"Work item type '{Self.WorkItemType}' is not a Product Backlog Item - skipping");
+        return;
+    }
+
+    // Step 2: Check if the state changed to "Approved"
+    if (!SelfChanges.ContainsKey("System.State"))
+    {
+        Logger.Debug($"State did not change for PBI {Self.Id} - skipping");
+        return;
+    }
+
+    var stateChange = SelfChanges["System.State"];
+    var newState = stateChange.NewValue?.ToString() ?? Self.State;
+    
+    if (!newState.Equals("Approved", StringComparison.OrdinalIgnoreCase))
+    {
+        Logger.Debug($"PBI {Self.Id} state changed to '{newState}' (not 'Approved') - skipping");
+        return;
+    }
+
+    Logger.Information($"PBI {Self.Id} moved to 'Approved' status");
+
+    // Step 3: Check if a sprint is allocated (not root iteration)
+    var iterationPath = Self.GetField<string>("System.IterationPath", "");
+    
+    if (string.IsNullOrWhiteSpace(iterationPath))
+    {
+        Logger.Information($"PBI {Self.Id} has no iteration path - skipping task creation");
+        return;
+    }
+
+    // Check if it's the root iteration (contains only project name, no sprint)
+    var iterationParts = iterationPath.Split('\\');
+    if (iterationParts.Length <= 1)
+    {
+        Logger.Information($"PBI {Self.Id} is in root iteration '{iterationPath}' - skipping task creation");
+        return;
+    }
+
+    Logger.Information($"PBI {Self.Id} has sprint allocated: '{iterationPath}'");
+
+    // Step 4: Get Development Effort Estimation
+    var developmentEffort = Self.GetField<double?>("Microsoft.VSTS.Scheduling.Effort");
+    
+    if (!developmentEffort.HasValue || developmentEffort.Value <= 0)
+    {
+        Logger.Warning($"PBI {Self.Id} has no valid Development Effort Estimation - tasks will be created without effort values");
+    }
+    else
+    {
+        Logger.Information($"PBI {Self.Id} Development Effort Estimation: {developmentEffort.Value}");
+    }
+
+    // Step 5: Get existing child tasks
+    var existingActivities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    
+    if (Self.Children != null && Self.Children.Count > 0)
+    {
+        Logger.Information($"PBI {Self.Id} has {Self.Children.Count} existing child items");
+        
+        foreach (var childRelation in Self.Children)
+        {
+            try
+            {
+                var childTask = await Client.GetWorkItem(childRelation.RelatedWorkItemId);
+                
+                if (childTask != null && childTask.WorkItemType == "Task")
+                {
+                    var activity = childTask.GetField<string>("Microsoft.VSTS.Common.Activity", "");
+                    if (!string.IsNullOrWhiteSpace(activity))
+                    {
+                        existingActivities.Add(activity);
+                        Logger.Debug($"Found existing task {childTask.Id} with Activity: '{activity}'");
+                    }
+                }
+            }
+            catch (Exception childEx)
+            {
+                Logger.Warning(childEx, $"Error checking child work item {childRelation.RelatedWorkItemId}");
+            }
+        }
+    }
+
+    // Step 6: Define required activities
+    var requiredActivities = new[] { "Development", "Testing" };
+    var tasksCreated = 0;
+
+    // Step 7: Create missing tasks
+    foreach (var activity in requiredActivities)
+    {
+        if (existingActivities.Contains(activity))
+        {
+            Logger.Information($"Task with Activity '{activity}' already exists for PBI {Self.Id} - skipping creation");
+            continue;
+        }
+
+        Logger.Information($"Creating '{activity}' task for PBI {Self.Id}");
+        
+        var taskCreated = await CreateActivityTask(activity, Self.Id, iterationPath, developmentEffort);
+        
+        if (taskCreated)
+        {
+            tasksCreated++;
+        }
+    }
+
+    if (tasksCreated > 0)
+    {
+        Logger.Information($"Successfully created {tasksCreated} task(s) for PBI {Self.Id}");
+    }
+    else
+    {
+        Logger.Information($"No new tasks needed for PBI {Self.Id} - all required activities already exist");
+    }
+}
+catch (Exception ex)
+{
+    Logger.Error(ex, $"Error in approved PBI task creation for PBI {Self.Id}");
+}
+
+// Helper method: Create a task for a specific activity
+async Task<bool> CreateActivityTask(string activity, int pbiId, string iterationPath, double? effortEstimate)
+{
+    try
+    {
+        // Prepare task fields
+        var taskFields = new Dictionary<string, object?>
+        {
+            ["System.Title"] = $"{activity} - {Self.Title}",
+            ["System.IterationPath"] = iterationPath,
+            ["System.AreaPath"] = Self.GetField<string>("System.AreaPath"),
+            ["Microsoft.VSTS.Common.Activity"] = activity,
+            ["System.Tags"] = Self.GetField<string>("System.Tags")
+        };
+
+        // Add effort estimation if available
+        if (effortEstimate.HasValue && effortEstimate.Value > 0)
+        {
+            taskFields["Microsoft.VSTS.Scheduling.OriginalEstimate"] = effortEstimate.Value;
+            taskFields["Microsoft.VSTS.Scheduling.RemainingWork"] = effortEstimate.Value;
+        }
+
+        // Copy custom fields if they exist
+        var category = Self.GetField<string>("Labs.Category");
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            taskFields["Labs.Category"] = category;
+        }
+
+        var projectCode = Self.GetField<string>("Labs.ProjectCode");
+        if (!string.IsNullOrWhiteSpace(projectCode))
+        {
+            taskFields["Labs.ProjectCode"] = projectCode;
+        }
+
+        // Create the task
+        var newTask = await Client.CreateWorkItem("Task", taskFields);
+        
+        if (newTask == null || newTask.Id == 0)
+        {
+            Logger.Error($"Failed to create '{activity}' task for PBI {pbiId}");
+            return false;
+        }
+
+        Logger.Information($"Created '{activity}' task {newTask.Id} for PBI {pbiId}");
+
+        // Link the task to the PBI as a child
+        var parentRelation = new WorkItemRelation
+        {
+            Rel = "System.LinkTypes.Hierarchy-Reverse",
+            Url = $"https://dev.azure.com/{Self.Project}/_apis/wit/workItems/{pbiId}",
+            Attributes = new Dictionary<string, object> { ["name"] = "Parent" }
+        };
+
+        var relationSaved = await Client.SaveWorkItemRelations(newTask, new List<WorkItemRelation> { parentRelation });
+        
+        if (!relationSaved)
+        {
+            Logger.Warning($"Task {newTask.Id} created but failed to link to PBI {pbiId}");
+        }
+        else
+        {
+            Logger.Debug($"Successfully linked task {newTask.Id} to PBI {pbiId}");
+        }
+
+        return true;
+    }
+    catch (Exception ex)
+    {
+        Logger.Error(ex, $"Error creating '{activity}' task for PBI {pbiId}");
+        return false;
+    }
+}

@@ -1,0 +1,213 @@
+// Feature Parent Title Propagation - Scheduled Task
+// This scheduled script updates "Parent Title" field for all children of changed Features
+// 
+// Functionality:
+// 1. Queries for Features that have been changed since last run
+// 2. For each changed Feature, retrieves all its children
+// 3. Updates the "Parent Title" field for each child with the Feature's title
+// 4. Uses batching to handle Features with many children efficiently
+// 5. Uses paging to handle large result sets
+//
+// Execution Interval: Runs every 15 minutes by default, adjusts based on activity
+
+Logger.Information("Starting Feature parent title propagation...");
+Logger.Information($"Processing Features changed since: {LastRun:yyyy-MM-dd HH:mm:ss}");
+
+try 
+{
+    var user = await Client.WhoAmI();
+    Logger.Information($"Feature parent title sync running as: {user?.Identity?.DisplayName}");
+    
+    // Step 1: Calculate the time window for processing
+    var syncStartTime = LastRun;
+    var syncEndTime = DateTime.Now;
+    var timeWindow = syncEndTime - syncStartTime;
+    
+    Logger.Information($"Sync window: {timeWindow.TotalMinutes:F1} minutes ({syncStartTime:HH:mm:ss} to {syncEndTime:HH:mm:ss})");
+    
+    // Step 2: Query for Features changed in the time window
+    var featureQuery = new QueryLinksByWiqlPrms
+    {
+        Wiql = $@"SELECT [System.Id], [System.Title], [System.ChangedDate] 
+                  FROM WorkItems 
+                  WHERE [System.WorkItemType] = 'Feature'
+                  AND [System.ChangedDate] >= '{syncStartTime:yyyy-MM-ddTHH:mm:ss.fffZ}' 
+                  AND [System.ChangedDate] < '{syncEndTime:yyyy-MM-ddTHH:mm:ss.fffZ}'
+                  ORDER BY [System.ChangedDate]"
+    };
+    
+    var changedFeatures = await Client.QueryLinksByWiql(featureQuery);
+    Logger.Information($"Found {changedFeatures.Count} Features changed in sync window");
+    
+    // If no Features changed, exit early
+    if (changedFeatures.Count == 0)
+    {
+        Logger.Information("No Features changed - skipping parent title propagation");
+        return ScheduledScriptResult.Success(15, "No Features changed, next check in 15 minutes");
+    }
+    
+    // Step 3: Process each changed Feature
+    var stats = new Dictionary<string, int>
+    {
+        ["FeaturesProcessed"] = 0,
+        ["ChildrenUpdated"] = 0,
+        ["ChildrenSkipped"] = 0,
+        ["Errors"] = 0
+    };
+    
+    const int BATCH_SIZE = 50; // Process children in batches of 50
+    
+    foreach (var featureSummary in changedFeatures)
+    {
+        try
+        {
+            Logger.Information($"Processing Feature {featureSummary.Id}: {featureSummary.Title}");
+            
+            // Get the full Feature work item with children
+            var feature = await Client.GetWorkItem(featureSummary.Id);
+            
+            if (feature == null || feature.Id == 0)
+            {
+                Logger.Warning($"Could not retrieve Feature {featureSummary.Id}");
+                stats["Errors"]++;
+                continue;
+            }
+            
+            // Check if Feature has children
+            if (feature.Children == null || feature.Children.Count == 0)
+            {
+                Logger.Debug($"Feature {feature.Id} has no children - skipping");
+                stats["FeaturesProcessed"]++;
+                continue;
+            }
+            
+            Logger.Information($"Feature {feature.Id} has {feature.Children.Count} children to update");
+            
+            var featureTitle = feature.Title;
+            var childrenToUpdate = new List<WorkItem>();
+            
+            // Step 4: Process children in batches
+            var childRelations = feature.Children.ToList();
+            var totalChildren = childRelations.Count;
+            var batchCount = (totalChildren + BATCH_SIZE - 1) / BATCH_SIZE; // Ceiling division
+            
+            for (int batchIndex = 0; batchIndex < batchCount; batchIndex++)
+            {
+                var batchStart = batchIndex * BATCH_SIZE;
+                var batchEnd = Math.Min(batchStart + BATCH_SIZE, totalChildren);
+                var batchSize = batchEnd - batchStart;
+                
+                Logger.Debug($"Processing batch {batchIndex + 1}/{batchCount} (items {batchStart + 1}-{batchEnd} of {totalChildren})");
+                
+                var currentBatch = childRelations.Skip(batchStart).Take(batchSize);
+                
+                foreach (var childRelation in currentBatch)
+                {
+                    try
+                    {
+                        var child = await Client.GetWorkItem(childRelation.RelatedWorkItemId);
+                        
+                        if (child == null || child.Id == 0)
+                        {
+                            Logger.Warning($"Could not retrieve child work item {childRelation.RelatedWorkItemId}");
+                            stats["Errors"]++;
+                            continue;
+                        }
+                        
+                        var currentParentTitle = child.GetField<string>("Custom.ParentTitle");
+                        
+                        // Only update if the parent title is different
+                        if (currentParentTitle != featureTitle)
+                        {
+                            child.SetField("Custom.ParentTitle", featureTitle);
+                            
+                            var saved = await Client.SaveWorkItem(child);
+                            
+                            if (saved)
+                            {
+                                stats["ChildrenUpdated"]++;
+                                Logger.Debug($"Updated Parent Title to '{featureTitle}' for {child.WorkItemType} {child.Id}");
+                            }
+                            else
+                            {
+                                stats["Errors"]++;
+                                Logger.Warning($"Failed to save Parent Title for {child.WorkItemType} {child.Id}");
+                            }
+                        }
+                        else
+                        {
+                            stats["ChildrenSkipped"]++;
+                            Logger.Debug($"{child.WorkItemType} {child.Id} already has correct Parent Title");
+                        }
+                    }
+                    catch (Exception childEx)
+                    {
+                        Logger.Warning(childEx, $"Error processing child work item {childRelation.RelatedWorkItemId}");
+                        stats["Errors"]++;
+                    }
+                }
+                
+                // Add a small delay between batches to avoid overwhelming the API
+                if (batchIndex < batchCount - 1)
+                {
+                    await Task.Delay(100); // 100ms delay between batches
+                }
+            }
+            
+            stats["FeaturesProcessed"]++;
+            Logger.Information($"Completed Feature {feature.Id}: {stats["ChildrenUpdated"]} updated, {stats["ChildrenSkipped"]} skipped");
+        }
+        catch (Exception featureEx)
+        {
+            Logger.Error(featureEx, $"Error processing Feature {featureSummary.Id}");
+            stats["Errors"]++;
+        }
+    }
+    
+    // Step 5: Log final results
+    Logger.Information($"Feature parent title propagation completed:");
+    Logger.Information($"  - Features processed: {stats["FeaturesProcessed"]}");
+    Logger.Information($"  - Children updated: {stats["ChildrenUpdated"]}");
+    Logger.Information($"  - Children skipped (already correct): {stats["ChildrenSkipped"]}");
+    Logger.Information($"  - Errors: {stats["Errors"]}");
+    
+    // Step 6: Determine next interval based on activity
+    var nextInterval = DetermineNextInterval(changedFeatures.Count, stats["ChildrenUpdated"]);
+    var message = $"Processed {stats["FeaturesProcessed"]} Features, updated {stats["ChildrenUpdated"]} children, next run in {nextInterval} minutes";
+    
+    return ScheduledScriptResult.Success(nextInterval, message);
+}
+catch (Exception ex)
+{
+    Logger.Error(ex, "Feature parent title propagation failed");
+    
+    // On failure, retry sooner
+    return ScheduledScriptResult.Success(5, $"Task failed, will retry in 5 minutes: {ex.Message}");
+}
+
+// Helper method to determine optimal sync interval based on activity
+int DetermineNextInterval(int featureCount, int updatesCount)
+{
+    // High activity: sync more frequently
+    if (featureCount > 20 || updatesCount > 100)
+    {
+        Logger.Debug("High activity detected - setting 5 minute interval");
+        return 5;
+    }
+    
+    if (featureCount > 10 || updatesCount > 50)
+    {
+        Logger.Debug("Moderate activity detected - setting 10 minute interval");
+        return 10;
+    }
+    
+    if (featureCount > 0)
+    {
+        Logger.Debug("Low activity detected - setting 15 minute interval");
+        return 15;
+    }
+    
+    // No activity: check less frequently
+    Logger.Debug("No activity detected - setting 30 minute interval");
+    return 30;
+}
