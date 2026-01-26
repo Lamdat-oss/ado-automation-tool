@@ -5,6 +5,18 @@
     "name": "ADO Automation Tool",
     "description": "Automate Azure DevOps with C# scripts triggered by webhooks or schedules.",
     "publisher": "Lamdat",
+    "public": true,
+    "galleryFlags": [
+        "Public"
+    ],
+    "tags": [
+        "automation",
+        "webhooks",
+        "scripting",
+        "c-sharp",
+        "workflow",
+        "azure-boards"
+    ],
     "content": {
         "details": {
             "path": "overview.md"
