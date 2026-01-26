@@ -1,10 +1,22 @@
 {
     "manifestVersion": 1,
     "id": "ado-automation-tool",
-    "version": "0.7.3",
+    "version": "0.7.5",
     "name": "ADO Automation Tool",
     "description": "Automate Azure DevOps with C# scripts triggered by webhooks or schedules.",
     "publisher": "Lamdat",
+    "public": true,
+    "galleryFlags": [
+        "Public"
+    ],
+    "tags": [
+        "automation",
+        "webhooks",
+        "scripting",
+        "c-sharp",
+        "workflow",
+        "azure-boards"
+    ],
     "content": {
         "details": {
             "path": "overview.md"
@@ -27,7 +39,7 @@
         }
     ],
     "icons": {
-        "default": "images/icon.png"
+        "default": "images/icon-square.png"
     },
     "categories": [
         "Azure Boards"
